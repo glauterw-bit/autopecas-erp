@@ -1,0 +1,1437 @@
+// Schema do AutoPeças ERP
+//
+// Modelo de dados cobrindo o domínio completo de auto peças no Brasil:
+// - Catálogo com aplicação veicular (marca/modelo/motor/ano)
+// - Cross-reference de códigos (OEM, original, similar, fabricante)
+// - PDV, estoque multi-depósito, fiscal NF-e/NFC-e
+// - Financeiro (contas, fluxo de caixa, conciliação)
+// - Marketplaces (ML, Shopee, Amazon, próprio e-commerce)
+// - Embeddings vetoriais para busca semântica e IA (pgvector)
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // pgvector é opcional: ative quando provisionar Postgres com a extensão (Railway template "pgvector").
+  // extensions = [pgcrypto, pg_trgm, vector, unaccent]
+  extensions = [pgcrypto, pg_trgm, unaccent]
+}
+
+// =========================================================================
+// TENANT / MULTIEMPRESA / USUÁRIOS
+// =========================================================================
+
+model Empresa {
+  id              String   @id @default(cuid())
+  razaoSocial     String
+  nomeFantasia    String?
+  cnpj            String   @unique
+  inscEstadual    String?
+  inscMunicipal   String?
+  regimeTributario RegimeTributario @default(SIMPLES_NACIONAL)
+  cnaeFiscal      String?
+  email           String?
+  telefone        String?
+  logradouro      String?
+  numero          String?
+  complemento     String?
+  bairro          String?
+  municipio       String?
+  uf              String?
+  cep             String?
+  logoUrl         String?
+  configuracoes   Json?    // chaves de serviços, parâmetros fiscais, etc.
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  usuarios        Usuario[]
+  filiais         Filial[]
+  depositos       Deposito[]
+  produtos        Produto[]
+  clientes        Cliente[]
+  fornecedores    Fornecedor[]
+  vendas          Venda[]
+  notasFiscais    NotaFiscal[]
+  contasPagar     ContaPagar[]
+  contasReceber   ContaReceber[]
+  contasBancarias ContaBancaria[]
+  marketplaces    MarketplaceConta[]
+  movimentosCaixa MovimentoCaixa[]
+  pedidosCompra   PedidoCompra[]
+  insightsIA      InsightIA[]
+
+  @@map("empresas")
+}
+
+model Filial {
+  id           String   @id @default(cuid())
+  empresaId    String
+  empresa      Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  nome         String
+  cnpj         String?
+  endereco     String?
+  ativa        Boolean  @default(true)
+  criadoEm     DateTime @default(now())
+
+  depositos    Deposito[]
+  vendas       Venda[]
+  caixas       Caixa[]
+
+  @@map("filiais")
+}
+
+model Usuario {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  nome            String
+  email           String   @unique
+  senhaHash       String
+  perfil          PerfilUsuario @default(VENDEDOR)
+  ativo           Boolean  @default(true)
+  ultimoLogin     DateTime?
+  totpSecret      String?
+  permissoes      String[] @default([])
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  vendas          Venda[]
+  movimentosCaixa MovimentoCaixa[]
+  sessoesCaixa    SessaoCaixa[]
+  auditorias      LogAuditoria[]
+
+  @@map("usuarios")
+}
+
+enum PerfilUsuario {
+  ADMIN
+  GERENTE
+  VENDEDOR
+  CAIXA
+  ESTOQUISTA
+  FINANCEIRO
+  TECNICO
+}
+
+enum RegimeTributario {
+  SIMPLES_NACIONAL
+  SIMPLES_EXCESSO_SUBLIMITE
+  LUCRO_PRESUMIDO
+  LUCRO_REAL
+  MEI
+}
+
+// =========================================================================
+// CATÁLOGO VEICULAR (TecDoc/Cinoa-style)
+// =========================================================================
+// Estrutura hierárquica padronizada que permite definir a aplicação de
+// cada peça em veículos específicos. É o que viabiliza a busca por
+// "qual pastilha de freio serve no meu Civic 2015 LXR".
+
+model Montadora {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  pais      String?
+  logoUrl   String?
+  modelos   ModeloVeiculo[]
+
+  @@map("montadoras")
+}
+
+model ModeloVeiculo {
+  id            String   @id @default(cuid())
+  montadoraId   String
+  montadora     Montadora @relation(fields: [montadoraId], references: [id])
+  nome          String           // ex.: "Civic"
+  categoria     CategoriaVeiculo @default(CARRO)
+  anoInicio     Int?
+  anoFim        Int?
+  carroceria    String?          // sedan, hatch, suv, picape...
+
+  versoes       VersaoVeiculo[]
+
+  @@unique([montadoraId, nome])
+  @@map("modelos_veiculo")
+}
+
+enum CategoriaVeiculo {
+  CARRO
+  CAMINHONETE
+  SUV
+  MOTO
+  CAMINHAO
+  ONIBUS
+  MAQUINA_AGRICOLA
+  EMBARCACAO
+}
+
+model VersaoVeiculo {
+  id              String   @id @default(cuid())
+  modeloId        String
+  modelo          ModeloVeiculo @relation(fields: [modeloId], references: [id])
+  descricao       String           // ex.: "LXR 2.0 16V Flex"
+  motor           String?          // ex.: "K20Z2 2.0 Flex"
+  potenciaCv      Int?
+  combustivel     Combustivel?
+  cambio          String?          // automatico, manual, cvt
+  tracao          String?          // 4x2, 4x4, awd
+  anoInicio       Int?
+  anoFim          Int?
+  chassiPrefix    String?          // VIN prefix p/ identificação
+  codigoFipe      String?
+
+  aplicacoes      AplicacaoVeicular[]
+  veiculosCliente VeiculoCliente[]
+
+  @@map("versoes_veiculo")
+}
+
+enum Combustivel {
+  GASOLINA
+  ETANOL
+  FLEX
+  DIESEL
+  GNV
+  ELETRICO
+  HIBRIDO
+}
+
+// =========================================================================
+// PRODUTOS / PEÇAS
+// =========================================================================
+
+model CategoriaPeca {
+  id          String   @id @default(cuid())
+  nome        String   @unique     // ex.: "Pastilha de Freio"
+  sistema     SistemaVeicular      // ex.: FREIO
+  parentId    String?
+  parent      CategoriaPeca?  @relation("CategoriaTree", fields: [parentId], references: [id])
+  filhos      CategoriaPeca[] @relation("CategoriaTree")
+  produtos    Produto[]
+
+  @@map("categorias_peca")
+}
+
+enum SistemaVeicular {
+  MOTOR
+  ARREFECIMENTO
+  TRANSMISSAO
+  EMBREAGEM
+  FREIO
+  SUSPENSAO
+  DIRECAO
+  ELETRICA
+  IGNICAO
+  COMBUSTIVEL
+  ESCAPAMENTO
+  AR_CONDICIONADO
+  CARROCERIA
+  INTERIOR
+  RODAS_PNEUS
+  ACESSORIOS
+  LUBRIFICANTES
+  FERRAMENTAS
+  OUTROS
+}
+
+model Marca {
+  id        String   @id @default(cuid())
+  nome      String   @unique         // ex.: "Bosch", "NGK", "Cofap"
+  pais      String?
+  oem       Boolean  @default(false) // peça original / OEM
+  premium   Boolean  @default(false)
+  logoUrl   String?
+  produtos  Produto[]
+
+  @@map("marcas")
+}
+
+model Produto {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  sku             String                       // código interno
+  codigoBarras    String?                      // EAN/GTIN
+  codigoFabricante String?                     // código do fabricante
+  codigoOem       String?                      // código original montadora
+  nome            String
+  descricao       String?
+  marcaId         String?
+  marca           Marca?   @relation(fields: [marcaId], references: [id])
+  categoriaId     String?
+  categoria       CategoriaPeca? @relation(fields: [categoriaId], references: [id])
+  unidade         String   @default("UN")      // UN, PC, KG, L, M, JG, PAR
+  pesoKg          Decimal? @db.Decimal(10, 3)
+  volumeM3        Decimal? @db.Decimal(10, 4)
+  larguraCm       Decimal? @db.Decimal(10, 2)
+  alturaCm        Decimal? @db.Decimal(10, 2)
+  comprimentoCm   Decimal? @db.Decimal(10, 2)
+
+  // preços
+  custoMedio      Decimal  @default(0) @db.Decimal(14, 4)
+  custoUltimaCompra Decimal? @db.Decimal(14, 4)
+  margemAlvo      Decimal? @db.Decimal(6, 4)   // ex.: 0.35 = 35%
+  precoVenda      Decimal  @default(0) @db.Decimal(14, 4)
+  precoAtacado    Decimal? @db.Decimal(14, 4)
+  precoPromocional Decimal? @db.Decimal(14, 4)
+  precoMinimo     Decimal? @db.Decimal(14, 4)  // gatilho do MarginGuard
+
+  // estoque
+  estoqueMinimo   Decimal  @default(0) @db.Decimal(14, 3)
+  estoqueMaximo   Decimal? @db.Decimal(14, 3)
+  pontoReposicao  Decimal? @db.Decimal(14, 3)
+  leadTimeDias    Int      @default(7)
+  curva           CurvaABC @default(C)
+
+  // fiscal
+  ncm             String?
+  cest            String?
+  cfopVendaInterna String? @default("5102")
+  cfopVendaInterestadual String? @default("6102")
+  origemFiscal    Int     @default(0)         // 0=nacional, 1=importado direto, etc.
+  cstIcms         String?
+  aliquotaIcms    Decimal? @db.Decimal(6, 4)
+  aliquotaIpi     Decimal? @db.Decimal(6, 4)
+  cstPis          String?
+  cstCofins       String?
+  pisAliquota     Decimal? @db.Decimal(6, 4)
+  cofinsAliquota  Decimal? @db.Decimal(6, 4)
+
+  // localização física na loja
+  localizacao     String?  // ex.: "Prateleira A3-B12"
+  garantiaMeses   Int?
+
+  // mídia
+  fotoPrincipal   String?
+  fotos           String[] @default([])
+  fichaTecnicaUrl String?
+
+  ativo           Boolean  @default(true)
+  permiteVendaSemEstoque Boolean @default(false)
+  controlaSerial  Boolean  @default(false)
+  controlaLote    Boolean  @default(false)
+
+  // IA / busca semântica - reativar quando pgvector estiver disponível:
+  // embedding       Unsupported("vector(1536)")?
+
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  precos          ListaPrecoItem[]
+  aplicacoes      AplicacaoVeicular[]
+  crossReferences CrossReference[] @relation("ProdutoCrossOrigem")
+  crossReverso    CrossReference[] @relation("ProdutoCrossDestino")
+  estoques        EstoqueDeposito[]
+  movimentosEst   MovimentoEstoque[]
+  itensVenda      ItemVenda[]
+  itensPedidoCompra ItemPedidoCompra[]
+  itensNotaEntrada ItemNotaEntrada[]
+  marketplaceAnuncios MarketplaceAnuncio[]
+  reservasEstoque  ReservaEstoque[]
+  promocoes        ItemPromocao[]
+  precosPorVeiculo PrecoPorVeiculo[]
+
+  @@unique([empresaId, sku])
+  @@index([empresaId, codigoBarras])
+  @@index([empresaId, codigoFabricante])
+  @@index([empresaId, codigoOem])
+  @@index([empresaId, ativo])
+  @@map("produtos")
+}
+
+enum CurvaABC {
+  A
+  B
+  C
+}
+
+// Ligação produto <-> versão de veículo (aplicação).
+// É o "qual peça serve em qual carro".
+model AplicacaoVeicular {
+  id              String        @id @default(cuid())
+  produtoId       String
+  produto         Produto       @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  versaoId        String
+  versao          VersaoVeiculo @relation(fields: [versaoId], references: [id])
+  posicao         PosicaoMontagem? // dianteira, traseira, lado direito...
+  quantidadePorVeiculo Int      @default(1)
+  observacao      String?
+
+  @@unique([produtoId, versaoId, posicao])
+  @@index([versaoId])
+  @@map("aplicacoes_veiculares")
+}
+
+enum PosicaoMontagem {
+  DIANTEIRA
+  TRASEIRA
+  LADO_DIREITO
+  LADO_ESQUERDO
+  SUPERIOR
+  INFERIOR
+  CENTRAL
+  DIANTEIRA_DIREITA
+  DIANTEIRA_ESQUERDA
+  TRASEIRA_DIREITA
+  TRASEIRA_ESQUERDA
+}
+
+// Cross-reference (equivalência) entre produtos: original ↔ similares/aftermarket.
+// Modelado como grafo direcionado para permitir confiança bilateral e fontes.
+model CrossReference {
+  id              String   @id @default(cuid())
+  origemId        String
+  origem          Produto  @relation("ProdutoCrossOrigem", fields: [origemId], references: [id], onDelete: Cascade)
+  destinoId       String
+  destino         Produto  @relation("ProdutoCrossDestino", fields: [destinoId], references: [id], onDelete: Cascade)
+  tipo            TipoCrossReference
+  confianca       Float    @default(1.0)   // 0..1 (gerado por IA pode ser <1)
+  fonte           String?                  // "TecDoc", "IA-SmartCross", "manual", "fabricante"
+  observacao      String?
+  criadoEm        DateTime @default(now())
+
+  @@unique([origemId, destinoId])
+  @@index([destinoId])
+  @@map("cross_references")
+}
+
+enum TipoCrossReference {
+  EQUIVALENTE       // troca direta, mesma especificação
+  SIMILAR           // serve mas com pequenas diferenças
+  SUBSTITUTO        // peça que substitui versão descontinuada
+  KIT_ALTERNATIVO   // kit que cobre o mesmo escopo
+}
+
+// =========================================================================
+// ESTOQUE MULTI-DEPÓSITO
+// =========================================================================
+
+model Deposito {
+  id           String   @id @default(cuid())
+  empresaId    String
+  empresa      Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  filialId     String?
+  filial       Filial?  @relation(fields: [filialId], references: [id])
+  nome         String
+  tipo         TipoDeposito @default(LOJA)
+  endereco     String?
+  ativo        Boolean  @default(true)
+  permiteVenda Boolean  @default(true)
+
+  estoques     EstoqueDeposito[]
+  movimentos   MovimentoEstoque[]
+  reservas     ReservaEstoque[]
+
+  @@map("depositos")
+}
+
+enum TipoDeposito {
+  LOJA
+  CENTRO_DISTRIBUICAO
+  CONSIGNACAO
+  TROCA_GARANTIA
+  AVARIA
+  VIRTUAL_MARKETPLACE
+}
+
+model EstoqueDeposito {
+  id           String   @id @default(cuid())
+  produtoId    String
+  produto      Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  depositoId   String
+  deposito     Deposito @relation(fields: [depositoId], references: [id], onDelete: Cascade)
+  quantidade   Decimal  @default(0) @db.Decimal(14, 3)
+  reservado    Decimal  @default(0) @db.Decimal(14, 3)
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([produtoId, depositoId])
+  @@index([depositoId])
+  @@map("estoque_deposito")
+}
+
+model MovimentoEstoque {
+  id           String   @id @default(cuid())
+  produtoId    String
+  produto      Produto  @relation(fields: [produtoId], references: [id])
+  depositoId   String
+  deposito     Deposito @relation(fields: [depositoId], references: [id])
+  tipo         TipoMovimentoEstoque
+  quantidade   Decimal  @db.Decimal(14, 3)
+  custoUnitario Decimal? @db.Decimal(14, 4)
+  documento    String?  // referência (venda, NF, transferência)
+  origemTipo   String?  // VENDA, ENTRADA_NF, AJUSTE, INVENTARIO, TRANSFERENCIA, DEVOLUCAO
+  origemId     String?
+  observacao   String?
+  criadoEm     DateTime @default(now())
+
+  @@index([produtoId])
+  @@index([depositoId])
+  @@index([origemTipo, origemId])
+  @@map("movimentos_estoque")
+}
+
+enum TipoMovimentoEstoque {
+  ENTRADA
+  SAIDA
+  AJUSTE_POSITIVO
+  AJUSTE_NEGATIVO
+  TRANSFERENCIA_ENTRADA
+  TRANSFERENCIA_SAIDA
+  RESERVA
+  ESTORNO_RESERVA
+}
+
+model ReservaEstoque {
+  id           String   @id @default(cuid())
+  produtoId    String
+  produto      Produto  @relation(fields: [produtoId], references: [id])
+  depositoId   String
+  deposito     Deposito @relation(fields: [depositoId], references: [id])
+  quantidade   Decimal  @db.Decimal(14, 3)
+  motivo       String   // "pedido_marketplace_123", "orçamento_456"
+  expiraEm     DateTime?
+  liberada     Boolean  @default(false)
+  criadoEm     DateTime @default(now())
+
+  @@map("reservas_estoque")
+}
+
+// =========================================================================
+// CLIENTES E VEÍCULOS DOS CLIENTES
+// =========================================================================
+
+model Cliente {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  tipo            TipoPessoa @default(PF)
+  cpfCnpj         String?
+  rgIe            String?
+  nome            String
+  apelido         String?
+  email           String?
+  telefone        String?
+  telefoneAlternativo String?
+  whatsapp        String?
+  dataNascimento  DateTime?
+  sexo            String?
+
+  logradouro      String?
+  numero          String?
+  complemento     String?
+  bairro          String?
+  municipio       String?
+  uf              String?
+  cep             String?
+
+  segmento        SegmentoCliente @default(CONSUMIDOR_FINAL)
+  limiteCredito   Decimal  @default(0) @db.Decimal(14, 2)
+  saldoDevedor    Decimal  @default(0) @db.Decimal(14, 2)
+  bloqueado       Boolean  @default(false)
+  observacoes     String?
+  tabelaPrecoId   String?
+  tabelaPreco     TabelaPreco? @relation(fields: [tabelaPrecoId], references: [id])
+
+  // IA / score
+  scoreCredito    Float?            // 0..1 calculado pelo CreditSense
+  scoreChurn      Float?            // probabilidade de não voltar
+  ticketMedio     Decimal? @db.Decimal(14, 2)
+  ultimaCompra    DateTime?
+
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  veiculos        VeiculoCliente[]
+  vendas          Venda[]
+  contasReceber   ContaReceber[]
+  notasFiscais    NotaFiscal[]
+  conversas       ConversaIA[]
+
+  @@unique([empresaId, cpfCnpj])
+  @@index([empresaId, nome])
+  @@map("clientes")
+}
+
+enum TipoPessoa {
+  PF
+  PJ
+  ESTRANGEIRO
+}
+
+enum SegmentoCliente {
+  CONSUMIDOR_FINAL
+  MECANICA
+  REVENDA
+  FROTISTA
+  CONCESSIONARIA
+  SEGURADORA
+  ATACADISTA
+}
+
+// Garagem do cliente: mantém histórico dos veículos para sugerir peças.
+model VeiculoCliente {
+  id           String   @id @default(cuid())
+  clienteId    String
+  cliente      Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  placa        String?
+  chassi       String?
+  renavam      String?
+  versaoId     String?
+  versao       VersaoVeiculo? @relation(fields: [versaoId], references: [id])
+  ano          Int?
+  anoModelo    Int?
+  cor          String?
+  kmAtual      Int?
+  kmUltimoServico Int?
+  observacoes  String?
+
+  @@index([placa])
+  @@index([chassi])
+  @@map("veiculos_cliente")
+}
+
+// =========================================================================
+// FORNECEDORES E COMPRAS
+// =========================================================================
+
+model Fornecedor {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  tipo            TipoPessoa @default(PJ)
+  cnpjCpf         String
+  razaoSocial     String
+  nomeFantasia    String?
+  inscricaoEstadual String?
+  contatoNome     String?
+  email           String?
+  telefone        String?
+  whatsapp        String?
+  endereco        String?
+  prazoEntregaDias Int?
+  condicaoPagamentoPadrao String?  // "30/60/90"
+  bancoFavorecido String?
+  pixChave        String?
+  observacoes     String?
+  ativo           Boolean  @default(true)
+  // métricas
+  pontualidade    Float?            // 0..1
+  qualidadeMedia  Float?            // score IA baseado em devoluções
+  criadoEm        DateTime @default(now())
+
+  pedidosCompra   PedidoCompra[]
+  notasEntrada    NotaEntrada[]
+  contasPagar     ContaPagar[]
+
+  @@unique([empresaId, cnpjCpf])
+  @@map("fornecedores")
+}
+
+model PedidoCompra {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  fornecedorId    String
+  fornecedor      Fornecedor @relation(fields: [fornecedorId], references: [id])
+  numero          Int
+  status          StatusPedidoCompra @default(RASCUNHO)
+  dataEmissao     DateTime @default(now())
+  dataPrevisaoEntrega DateTime?
+  valorBruto      Decimal  @default(0) @db.Decimal(14, 2)
+  valorFrete      Decimal  @default(0) @db.Decimal(14, 2)
+  valorDesconto   Decimal  @default(0) @db.Decimal(14, 2)
+  valorTotal      Decimal  @default(0) @db.Decimal(14, 2)
+  observacoes     String?
+  geradoPorIA     Boolean  @default(false) // StockPredict pode sugerir e auto-gerar
+  itens           ItemPedidoCompra[]
+  notaEntrada    NotaEntrada?
+  criadoEm        DateTime @default(now())
+
+  @@unique([empresaId, numero])
+  @@map("pedidos_compra")
+}
+
+enum StatusPedidoCompra {
+  RASCUNHO
+  AGUARDANDO_APROVACAO
+  APROVADO
+  ENVIADO_FORNECEDOR
+  PARCIALMENTE_RECEBIDO
+  RECEBIDO
+  CANCELADO
+}
+
+model ItemPedidoCompra {
+  id              String   @id @default(cuid())
+  pedidoId        String
+  pedido          PedidoCompra @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  produtoId       String
+  produto         Produto  @relation(fields: [produtoId], references: [id])
+  quantidade      Decimal  @db.Decimal(14, 3)
+  custoUnitario   Decimal  @db.Decimal(14, 4)
+  desconto        Decimal  @default(0) @db.Decimal(14, 2)
+  total           Decimal  @db.Decimal(14, 2)
+
+  @@map("itens_pedido_compra")
+}
+
+// NF-e de entrada — pode ser importada via XML ou criada via OCR (NF-IA).
+model NotaEntrada {
+  id              String   @id @default(cuid())
+  fornecedorId    String
+  fornecedor      Fornecedor @relation(fields: [fornecedorId], references: [id])
+  pedidoCompraId  String?  @unique
+  pedidoCompra    PedidoCompra? @relation(fields: [pedidoCompraId], references: [id])
+  chaveAcesso     String?  @unique
+  numero          String
+  serie           String
+  dataEmissao     DateTime
+  dataEntrada     DateTime @default(now())
+  valorProdutos   Decimal  @db.Decimal(14, 2)
+  valorFrete      Decimal  @default(0) @db.Decimal(14, 2)
+  valorDesconto   Decimal  @default(0) @db.Decimal(14, 2)
+  valorIpi        Decimal  @default(0) @db.Decimal(14, 2)
+  valorIcmsSt     Decimal  @default(0) @db.Decimal(14, 2)
+  valorTotal      Decimal  @db.Decimal(14, 2)
+  xmlOriginal     String?  @db.Text
+  ocrConfianca    Float?   // se importada por OCR
+  itens           ItemNotaEntrada[]
+  criadoEm        DateTime @default(now())
+
+  @@map("notas_entrada")
+}
+
+model ItemNotaEntrada {
+  id              String   @id @default(cuid())
+  notaId          String
+  nota            NotaEntrada @relation(fields: [notaId], references: [id], onDelete: Cascade)
+  produtoId       String?
+  produto         Produto? @relation(fields: [produtoId], references: [id])
+  descricaoOriginal String
+  codigoFornecedor String?
+  quantidade      Decimal  @db.Decimal(14, 3)
+  unidade         String
+  valorUnitario   Decimal  @db.Decimal(14, 4)
+  valorTotal      Decimal  @db.Decimal(14, 2)
+  cfop            String?
+  ncm             String?
+  precoVendaSugerido Decimal? @db.Decimal(14, 4)
+  margemSugerida  Decimal? @db.Decimal(6, 4)
+
+  @@map("itens_nota_entrada")
+}
+
+// =========================================================================
+// VENDAS / PDV / ORÇAMENTOS
+// =========================================================================
+
+model Caixa {
+  id           String   @id @default(cuid())
+  filialId     String
+  filial       Filial   @relation(fields: [filialId], references: [id])
+  nome         String   // "Caixa 01"
+  ativo        Boolean  @default(true)
+  sessoes      SessaoCaixa[]
+
+  @@map("caixas")
+}
+
+model SessaoCaixa {
+  id              String   @id @default(cuid())
+  caixaId         String
+  caixa           Caixa    @relation(fields: [caixaId], references: [id])
+  usuarioId       String
+  usuario         Usuario  @relation(fields: [usuarioId], references: [id])
+  abertaEm        DateTime @default(now())
+  fechadaEm       DateTime?
+  valorAbertura   Decimal  @default(0) @db.Decimal(14, 2)
+  valorFechamento Decimal? @db.Decimal(14, 2)
+  divergencia     Decimal? @db.Decimal(14, 2)
+  movimentos      MovimentoCaixa[]
+  vendas          Venda[]
+
+  @@map("sessoes_caixa")
+}
+
+model Venda {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  filialId        String?
+  filial          Filial?  @relation(fields: [filialId], references: [id])
+  sessaoCaixaId   String?
+  sessaoCaixa     SessaoCaixa? @relation(fields: [sessaoCaixaId], references: [id])
+  numero          Int
+  tipo            TipoVenda @default(VENDA)
+  status          StatusVenda @default(ABERTA)
+  origem          OrigemVenda @default(BALCAO)
+  marketplaceConta String?  // se origem é marketplace, qual conta
+
+  clienteId       String?
+  cliente         Cliente? @relation(fields: [clienteId], references: [id])
+  vendedorId      String?
+  vendedor        Usuario? @relation(fields: [vendedorId], references: [id])
+  veiculoPlaca    String?
+  veiculoDescricao String? // captura snapshot do veículo no momento
+
+  valorBruto      Decimal  @default(0) @db.Decimal(14, 2)
+  valorDesconto   Decimal  @default(0) @db.Decimal(14, 2)
+  descontoPercent Decimal? @db.Decimal(6, 4)
+  valorAcrescimo  Decimal  @default(0) @db.Decimal(14, 2)
+  valorFrete      Decimal  @default(0) @db.Decimal(14, 2)
+  valorTotal      Decimal  @default(0) @db.Decimal(14, 2)
+  custoTotal      Decimal  @default(0) @db.Decimal(14, 2)
+  margemBruta     Decimal? @db.Decimal(14, 2)
+  margemPercent   Decimal? @db.Decimal(6, 4)
+
+  observacoes     String?
+  notaFiscalId    String?  @unique
+  notaFiscal      NotaFiscal? @relation(fields: [notaFiscalId], references: [id])
+
+  criadaEm        DateTime @default(now())
+  fechadaEm       DateTime?
+  canceladaEm     DateTime?
+  motivoCancelamento String?
+
+  itens           ItemVenda[]
+  pagamentos      PagamentoVenda[]
+  contasReceber   ContaReceber[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, status])
+  @@index([empresaId, criadaEm])
+  @@map("vendas")
+}
+
+enum TipoVenda {
+  VENDA
+  ORCAMENTO
+  PRE_VENDA
+  DEVOLUCAO
+  TROCA
+}
+
+enum StatusVenda {
+  ABERTA
+  AGUARDANDO_PAGAMENTO
+  PAGA
+  FATURADA
+  CANCELADA
+  DEVOLVIDA
+}
+
+enum OrigemVenda {
+  BALCAO
+  PDV
+  ECOMMERCE
+  WHATSAPP
+  TELEFONE
+  MARKETPLACE_ML
+  MARKETPLACE_SHOPEE
+  MARKETPLACE_AMAZON
+  MARKETPLACE_MAGALU
+  EXTERNO
+}
+
+model ItemVenda {
+  id              String   @id @default(cuid())
+  vendaId         String
+  venda           Venda    @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  produtoId       String
+  produto         Produto  @relation(fields: [produtoId], references: [id])
+  quantidade      Decimal  @db.Decimal(14, 3)
+  precoUnitario   Decimal  @db.Decimal(14, 4)
+  custoUnitario   Decimal  @db.Decimal(14, 4)
+  desconto        Decimal  @default(0) @db.Decimal(14, 2)
+  acrescimo       Decimal  @default(0) @db.Decimal(14, 2)
+  total           Decimal  @db.Decimal(14, 2)
+  margem          Decimal? @db.Decimal(14, 2)
+  observacao      String?
+  // alerta MarginGuard
+  margemAbaixoMinimo Boolean @default(false)
+
+  @@map("itens_venda")
+}
+
+model PagamentoVenda {
+  id              String   @id @default(cuid())
+  vendaId         String
+  venda           Venda    @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  formaPagamento  FormaPagamento
+  valor           Decimal  @db.Decimal(14, 2)
+  parcelas        Int      @default(1)
+  bandeira        String?
+  nsuAutorizacao  String?
+  taxaPercent     Decimal? @db.Decimal(6, 4)
+  taxaValor       Decimal? @db.Decimal(14, 2)
+  contaBancariaId String?
+  contaBancaria   ContaBancaria? @relation(fields: [contaBancariaId], references: [id])
+  criadoEm        DateTime @default(now())
+
+  @@map("pagamentos_venda")
+}
+
+enum FormaPagamento {
+  DINHEIRO
+  PIX
+  DEBITO
+  CREDITO
+  CREDIARIO
+  BOLETO
+  CHEQUE
+  VALE_PRESENTE
+  TRANSFERENCIA
+}
+
+// =========================================================================
+// TABELAS DE PREÇO E PROMOÇÕES
+// =========================================================================
+
+model TabelaPreco {
+  id           String   @id @default(cuid())
+  empresaId    String
+  nome         String
+  ativa        Boolean  @default(true)
+  descontoPercent Decimal? @db.Decimal(6, 4)
+  acrescimoPercent Decimal? @db.Decimal(6, 4)
+  itens        ListaPrecoItem[]
+  clientes     Cliente[]
+
+  @@map("tabelas_preco")
+}
+
+model ListaPrecoItem {
+  id           String   @id @default(cuid())
+  tabelaId     String
+  tabela       TabelaPreco @relation(fields: [tabelaId], references: [id], onDelete: Cascade)
+  produtoId    String
+  produto      Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  preco        Decimal  @db.Decimal(14, 4)
+
+  @@unique([tabelaId, produtoId])
+  @@map("lista_preco_itens")
+}
+
+// Preço de "kit" / preço específico quando vinculado a um veículo.
+// Ex.: pastilha dianteira + tambor por R$X se for para Onix 2019.
+model PrecoPorVeiculo {
+  id          String   @id @default(cuid())
+  produtoId   String
+  produto     Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  versaoId    String
+  preco       Decimal  @db.Decimal(14, 4)
+  precoKit    Decimal? @db.Decimal(14, 4)
+
+  @@unique([produtoId, versaoId])
+  @@map("precos_por_veiculo")
+}
+
+model Promocao {
+  id           String   @id @default(cuid())
+  nome         String
+  tipo         TipoPromocao
+  valorRegra   Decimal? @db.Decimal(14, 4)
+  dataInicio   DateTime
+  dataFim      DateTime
+  ativa        Boolean  @default(true)
+  itens        ItemPromocao[]
+
+  @@map("promocoes")
+}
+
+enum TipoPromocao {
+  DESCONTO_PERCENT
+  DESCONTO_VALOR
+  COMPRE_X_LEVE_Y
+  PRECO_FIXO
+  BRINDE
+}
+
+model ItemPromocao {
+  id           String   @id @default(cuid())
+  promocaoId   String
+  promocao     Promocao @relation(fields: [promocaoId], references: [id], onDelete: Cascade)
+  produtoId    String
+  produto      Produto  @relation(fields: [produtoId], references: [id])
+
+  @@unique([promocaoId, produtoId])
+  @@map("itens_promocao")
+}
+
+// =========================================================================
+// FISCAL — NF-e / NFC-e / SAT
+// =========================================================================
+
+model NotaFiscal {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  modelo          ModeloNF
+  serie           String
+  numero          Int
+  chaveAcesso     String?  @unique
+  protocolo       String?
+  status          StatusNF @default(EMITINDO)
+  ambiente        AmbienteNF @default(PRODUCAO)
+
+  clienteId       String?
+  cliente         Cliente? @relation(fields: [clienteId], references: [id])
+
+  naturezaOperacao String
+  dataEmissao     DateTime @default(now())
+  dataAutorizacao DateTime?
+  dataCancelamento DateTime?
+  motivoCancelamento String?
+
+  valorProdutos   Decimal  @db.Decimal(14, 2)
+  valorFrete      Decimal  @default(0) @db.Decimal(14, 2)
+  valorDesconto   Decimal  @default(0) @db.Decimal(14, 2)
+  valorIcms       Decimal  @default(0) @db.Decimal(14, 2)
+  valorIcmsSt     Decimal  @default(0) @db.Decimal(14, 2)
+  valorIpi        Decimal  @default(0) @db.Decimal(14, 2)
+  valorPis        Decimal  @default(0) @db.Decimal(14, 2)
+  valorCofins     Decimal  @default(0) @db.Decimal(14, 2)
+  valorTotal      Decimal  @db.Decimal(14, 2)
+
+  xmlAutorizado   String?  @db.Text
+  xmlCancelamento String?  @db.Text
+  danfeUrl        String?
+  cce             Json?    // cartas de correção
+
+  venda           Venda?
+
+  @@unique([empresaId, modelo, serie, numero])
+  @@map("notas_fiscais")
+}
+
+enum ModeloNF {
+  NFE_55
+  NFCE_65
+  SAT_59
+  NFSE
+}
+
+enum StatusNF {
+  EMITINDO
+  AUTORIZADA
+  REJEITADA
+  CANCELADA
+  DENEGADA
+  INUTILIZADA
+}
+
+enum AmbienteNF {
+  HOMOLOGACAO
+  PRODUCAO
+}
+
+// =========================================================================
+// FINANCEIRO
+// =========================================================================
+
+model ContaBancaria {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  nome            String
+  banco           String?
+  agencia         String?
+  conta           String?
+  tipo            TipoContaBancaria @default(CORRENTE)
+  saldoAtual      Decimal  @default(0) @db.Decimal(14, 2)
+  ativa           Boolean  @default(true)
+
+  pagamentos      PagamentoVenda[]
+  movimentosCaixa MovimentoCaixa[]
+  contasPagar     ContaPagar[]
+  contasReceber   ContaReceber[]
+
+  @@map("contas_bancarias")
+}
+
+enum TipoContaBancaria {
+  CORRENTE
+  POUPANCA
+  CAIXA_FISICO
+  CARTEIRA_DIGITAL
+  CONTA_PAGAMENTO
+}
+
+model PlanoConta {
+  id            String   @id @default(cuid())
+  codigo        String
+  nome          String
+  tipo          TipoPlanoConta
+  parentId      String?
+  parent        PlanoConta?  @relation("PlanoTree", fields: [parentId], references: [id])
+  filhos        PlanoConta[] @relation("PlanoTree")
+  contasPagar   ContaPagar[]
+  contasReceber ContaReceber[]
+  movimentos    MovimentoCaixa[]
+
+  @@map("plano_contas")
+}
+
+enum TipoPlanoConta {
+  RECEITA
+  DESPESA
+  INVESTIMENTO
+  TRANSFERENCIA
+}
+
+model ContaReceber {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  clienteId       String?
+  cliente         Cliente? @relation(fields: [clienteId], references: [id])
+  vendaId         String?
+  venda           Venda?   @relation(fields: [vendaId], references: [id])
+  planoContaId    String?
+  planoConta      PlanoConta? @relation(fields: [planoContaId], references: [id])
+  contaBancariaId String?
+  contaBancaria   ContaBancaria? @relation(fields: [contaBancariaId], references: [id])
+  descricao       String
+  formaPagamento  FormaPagamento
+  parcela         Int      @default(1)
+  totalParcelas   Int      @default(1)
+  documento       String?
+  dataVencimento  DateTime
+  dataRecebimento DateTime?
+  valor           Decimal  @db.Decimal(14, 2)
+  valorRecebido   Decimal  @default(0) @db.Decimal(14, 2)
+  juros           Decimal  @default(0) @db.Decimal(14, 2)
+  multa           Decimal  @default(0) @db.Decimal(14, 2)
+  desconto        Decimal  @default(0) @db.Decimal(14, 2)
+  status          StatusContaFin @default(ABERTO)
+  observacoes     String?
+  criadoEm        DateTime @default(now())
+
+  @@index([empresaId, status, dataVencimento])
+  @@map("contas_receber")
+}
+
+model ContaPagar {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  fornecedorId    String?
+  fornecedor      Fornecedor? @relation(fields: [fornecedorId], references: [id])
+  planoContaId    String?
+  planoConta      PlanoConta? @relation(fields: [planoContaId], references: [id])
+  contaBancariaId String?
+  contaBancaria   ContaBancaria? @relation(fields: [contaBancariaId], references: [id])
+  descricao       String
+  documento       String?
+  parcela         Int      @default(1)
+  totalParcelas   Int      @default(1)
+  dataVencimento  DateTime
+  dataPagamento   DateTime?
+  valor           Decimal  @db.Decimal(14, 2)
+  valorPago       Decimal  @default(0) @db.Decimal(14, 2)
+  juros           Decimal  @default(0) @db.Decimal(14, 2)
+  multa           Decimal  @default(0) @db.Decimal(14, 2)
+  desconto        Decimal  @default(0) @db.Decimal(14, 2)
+  status          StatusContaFin @default(ABERTO)
+  observacoes     String?
+  criadoEm        DateTime @default(now())
+
+  @@index([empresaId, status, dataVencimento])
+  @@map("contas_pagar")
+}
+
+enum StatusContaFin {
+  ABERTO
+  PARCIALMENTE_PAGO
+  PAGO
+  ATRASADO
+  CANCELADO
+  RENEGOCIADO
+}
+
+model MovimentoCaixa {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  sessaoCaixaId   String?
+  sessaoCaixa     SessaoCaixa? @relation(fields: [sessaoCaixaId], references: [id])
+  contaBancariaId String?
+  contaBancaria   ContaBancaria? @relation(fields: [contaBancariaId], references: [id])
+  planoContaId    String?
+  planoConta      PlanoConta? @relation(fields: [planoContaId], references: [id])
+  usuarioId       String?
+  usuario         Usuario? @relation(fields: [usuarioId], references: [id])
+  tipo            TipoMovimentoCaixa
+  formaPagamento  FormaPagamento?
+  valor           Decimal  @db.Decimal(14, 2)
+  descricao       String
+  documento       String?
+  data            DateTime @default(now())
+
+  @@index([empresaId, data])
+  @@map("movimentos_caixa")
+}
+
+enum TipoMovimentoCaixa {
+  ENTRADA
+  SAIDA
+  SANGRIA
+  SUPRIMENTO
+  TRANSFERENCIA
+}
+
+// =========================================================================
+// MARKETPLACES E E-COMMERCE
+// =========================================================================
+
+model MarketplaceConta {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  plataforma      Plataforma
+  nomeReferencia  String   // "Loja Principal ML"
+  contaExternaId  String?
+  accessToken     String?  @db.Text
+  refreshToken    String?  @db.Text
+  expiraEm        DateTime?
+  ativa           Boolean  @default(true)
+  configuracoes   Json?    // marketplace fees, política preço, etc.
+  ultimoSync      DateTime?
+  criadoEm        DateTime @default(now())
+
+  anuncios        MarketplaceAnuncio[]
+  pedidos         MarketplacePedido[]
+  mensagens       MensagemMarketplace[]
+
+  @@unique([empresaId, plataforma, nomeReferencia])
+  @@map("marketplace_contas")
+}
+
+enum Plataforma {
+  MERCADO_LIVRE
+  SHOPEE
+  AMAZON
+  MAGALU
+  AMERICANAS
+  WEBMOTORS_PECAS
+  OLX
+  ECOMMERCE_PROPRIO
+  WHATSAPP_CATALOG
+  GOOGLE_SHOPPING
+}
+
+model MarketplaceAnuncio {
+  id              String   @id @default(cuid())
+  contaId         String
+  conta           MarketplaceConta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  produtoId       String
+  produto         Produto  @relation(fields: [produtoId], references: [id])
+  itemIdExterno   String   // ID na plataforma (MLB1234, etc.)
+  titulo          String
+  preco           Decimal  @db.Decimal(14, 2)
+  precoOriginal   Decimal? @db.Decimal(14, 2)
+  estoqueExposto  Int      @default(0)
+  status          StatusAnuncio @default(ATIVO)
+  url             String?
+  tipoListagem    String?  // gold_pro, classic, etc.
+  fee             Decimal? @db.Decimal(14, 2)
+  frete           Json?
+  compatibilidadesUniversal Boolean @default(false)
+  compatibilidadesCatalog   Json?  // lista de modelos linkados no ML
+  ultimaSincronizacao DateTime?
+  criadoEm        DateTime @default(now())
+
+  @@unique([contaId, itemIdExterno])
+  @@index([produtoId])
+  @@map("marketplace_anuncios")
+}
+
+enum StatusAnuncio {
+  ATIVO
+  PAUSADO
+  ENCERRADO
+  REJEITADO
+  EM_REVISAO
+  RASCUNHO
+}
+
+model MarketplacePedido {
+  id              String   @id @default(cuid())
+  contaId         String
+  conta           MarketplaceConta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  pedidoIdExterno String
+  status          String
+  statusInterno   StatusPedidoMarketplace @default(NOVO)
+  valorTotal      Decimal  @db.Decimal(14, 2)
+  valorFrete      Decimal  @default(0) @db.Decimal(14, 2)
+  feeMarketplace  Decimal  @default(0) @db.Decimal(14, 2)
+  dataPedido      DateTime
+  payloadOriginal Json
+  vendaId         String?  // quando importado para o ERP gera Venda
+  observacao      String?
+
+  @@unique([contaId, pedidoIdExterno])
+  @@map("marketplace_pedidos")
+}
+
+enum StatusPedidoMarketplace {
+  NOVO
+  IMPORTADO
+  SEPARANDO
+  EXPEDIDO
+  ENTREGUE
+  CANCELADO
+  DEVOLVIDO
+}
+
+// Caixa unificada (OmniInbox) — todas as mensagens em um lugar.
+model MensagemMarketplace {
+  id              String   @id @default(cuid())
+  contaId         String
+  conta           MarketplaceConta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  conversaIdExterno String
+  remetente       String
+  texto           String   @db.Text
+  recebidaEm      DateTime
+  respondidaEm    DateTime?
+  respondidaPorIA Boolean  @default(false)
+  rascunhoIA      String?  @db.Text
+  status          StatusMensagem @default(NAO_LIDA)
+  tags            String[] @default([])
+
+  @@index([contaId, status])
+  @@map("mensagens_marketplace")
+}
+
+enum StatusMensagem {
+  NAO_LIDA
+  LIDA
+  AGUARDANDO_RESPOSTA
+  RESPONDIDA
+  FECHADA
+}
+
+// =========================================================================
+// IA — INSIGHTS, CONVERSAS, EMBEDDINGS
+// =========================================================================
+
+// Insights gerados pela IA (StockPredict, MarginGuard, DemandSense, etc.)
+model InsightIA {
+  id              String   @id @default(cuid())
+  empresaId       String
+  empresa         Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  tipo            TipoInsight
+  severidade      Severidade @default(INFO)
+  titulo          String
+  descricao       String   @db.Text
+  acaoSugerida    String?  @db.Text
+  dadosReferencia Json?    // produto_id, fornecedor_id, etc.
+  resolvidoEm     DateTime?
+  resolvidoPor    String?
+  feedback        FeedbackInsight?
+  criadoEm        DateTime @default(now())
+
+  @@index([empresaId, tipo, resolvidoEm])
+  @@map("insights_ia")
+}
+
+enum TipoInsight {
+  RUPTURA_PREDITIVA
+  EXCESSO_ESTOQUE
+  MARGEM_BAIXA
+  OPORTUNIDADE_PRECO
+  ABANDONO_CLIENTE
+  CROSS_SELL
+  FRAUDE_POTENCIAL
+  TENDENCIA_DEMANDA
+  COMPRA_SUGERIDA
+  ANUNCIO_FRACO
+  CADASTRO_DUPLICADO
+  PRODUTO_OBSOLETO
+}
+
+enum Severidade {
+  INFO
+  AVISO
+  CRITICO
+}
+
+enum FeedbackInsight {
+  UTIL
+  NAO_UTIL
+  INCORRETO
+}
+
+// Histórico de conversas com IA (chat interno, WhatsApp, marketplace).
+model ConversaIA {
+  id              String   @id @default(cuid())
+  canal           CanalConversa
+  clienteId       String?
+  cliente         Cliente? @relation(fields: [clienteId], references: [id])
+  identificadorExterno String?  // phone, ml_user, etc.
+  iniciadaEm      DateTime @default(now())
+  finalizadaEm    DateTime?
+  resumo          String?  @db.Text
+  transferidaParaHumano Boolean @default(false)
+  satisfacao      Int?     // 1..5
+  mensagens       MensagemIA[]
+
+  @@map("conversas_ia")
+}
+
+enum CanalConversa {
+  CHAT_INTERNO
+  WHATSAPP
+  MERCADO_LIVRE
+  SHOPEE
+  ECOMMERCE
+  TELEFONE_VOZ
+}
+
+model MensagemIA {
+  id           String   @id @default(cuid())
+  conversaId   String
+  conversa     ConversaIA @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  papel        PapelMensagem
+  conteudo     String   @db.Text
+  ferramenta   String?  // tool call name
+  argsFerramenta Json?
+  custoTokens  Int?
+  modelo       String?  // claude-opus-4-7, etc.
+  criadoEm     DateTime @default(now())
+
+  @@map("mensagens_ia")
+}
+
+enum PapelMensagem {
+  SISTEMA
+  USUARIO
+  ASSISTENTE
+  FERRAMENTA
+}
+
+// =========================================================================
+// AUDITORIA / LOG
+// =========================================================================
+
+model LogAuditoria {
+  id           String   @id @default(cuid())
+  usuarioId    String?
+  usuario      Usuario? @relation(fields: [usuarioId], references: [id])
+  acao         String
+  entidade     String
+  entidadeId   String?
+  dadosAntes   Json?
+  dadosDepois  Json?
+  ip           String?
+  userAgent    String?
+  criadoEm     DateTime @default(now())
+
+  @@index([entidade, entidadeId])
+  @@index([usuarioId, criadoEm])
+  @@map("logs_auditoria")
+}
