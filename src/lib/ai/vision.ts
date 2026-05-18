@@ -1,13 +1,12 @@
-import { AI_MODELS, anthropic, cachedSystem } from "./client";
+import { AI_MODELS, extrairJson, openai } from "./client";
 
 // AutoVision AI
 // =============
-// Diferencial competitivo: usuário fotografa a peça (no balcão, na bancada,
-// ou cliente envia pelo WhatsApp) e o sistema identifica:
+// Usuário fotografa a peça e a IA identifica:
 //   - categoria / sistema veicular
 //   - sinais de marca, número de série, código OEM impressos
 //   - estado/desgaste aparente
-//   - sugestão de termos de busca para localizar a peça no catálogo
+//   - sugestão de termos de busca para localizar no catálogo
 //
 // Em seguida casamos o resultado com SmartCross para encontrar SKU equivalente.
 
@@ -42,21 +41,22 @@ export async function identificarPecaPorImagem(
   imagensBase64: string[],
   mimeType: "image/jpeg" | "image/png" | "image/webp" = "image/jpeg",
 ): Promise<IdentificacaoPeca> {
-  const resp = await anthropic.messages.create({
+  const resp = await openai.chat.completions.create({
     model: AI_MODELS.default,
-    max_tokens: 1024,
-    system: [cachedSystem(SYSTEM_PROMPT_VISION)],
+    max_completion_tokens: 1024,
+    response_format: { type: "json_object" },
     messages: [
+      { role: "system", content: SYSTEM_PROMPT_VISION },
       {
         role: "user",
         content: [
           ...imagensBase64.map((b64) => ({
-            type: "image" as const,
-            source: { type: "base64" as const, media_type: mimeType, data: b64 },
+            type: "image_url" as const,
+            image_url: { url: `data:${mimeType};base64,${b64}` },
           })),
           {
-            type: "text",
-            text: `Analise a(s) foto(s) e responda apenas com o JSON no formato:
+            type: "text" as const,
+            text: `Analise a(s) foto(s) e responda APENAS o JSON no formato:
 {
   "categoria": "string",
   "sistema": "MOTOR|FREIO|SUSPENSAO|ELETRICA|IGNICAO|ARREFECIMENTO|TRANSMISSAO|EMBREAGEM|DIRECAO|COMBUSTIVEL|ESCAPAMENTO|AR_CONDICIONADO|CARROCERIA|INTERIOR|RODAS_PNEUS|ACESSORIOS|LUBRIFICANTES|FERRAMENTAS|OUTROS",
@@ -76,17 +76,6 @@ export async function identificarPecaPorImagem(
     ],
   });
 
-  const texto = resp.content
-    .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-
-  const jsonMatch = texto.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("AutoVision: resposta da IA não contém JSON válido");
-  }
-  return JSON.parse(jsonMatch[0]) as IdentificacaoPeca;
+  const texto = resp.choices[0]?.message?.content ?? "";
+  return extrairJson<IdentificacaoPeca>(texto);
 }
-
-// Tipo do SDK: precisamos importar o namespace para tipos auxiliares.
-import type Anthropic from "@anthropic-ai/sdk";

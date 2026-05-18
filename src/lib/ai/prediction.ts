@@ -1,5 +1,5 @@
 import { prisma } from "../db";
-import { AI_MODELS, anthropic, cachedSystem } from "./client";
+import { AI_MODELS, extrairJson, openai } from "./client";
 
 // DemandSense / StockPredict
 // ==========================
@@ -24,11 +24,10 @@ export interface PrevisaoDemanda {
   explicacao: string;
 }
 
-// Lê histórico de vendas dos últimos N dias agrupado por dia.
 async function historicoVendas(produtoId: string, dias: number) {
   const desde = new Date();
   desde.setDate(desde.getDate() - dias);
-  const rows = await prisma.$queryRaw<Array<{ dia: Date; qtd: number }>>`
+  return prisma.$queryRaw<Array<{ dia: Date; qtd: number }>>`
     SELECT DATE_TRUNC('day', v.criada_em) AS dia, SUM(iv.quantidade)::float AS qtd
       FROM itens_venda iv
       JOIN vendas v ON v.id = iv.venda_id
@@ -37,7 +36,6 @@ async function historicoVendas(produtoId: string, dias: number) {
        AND v.status NOT IN ('CANCELADA')
      GROUP BY 1
      ORDER BY 1`;
-  return rows;
 }
 
 function media(arr: number[]) {
@@ -45,7 +43,6 @@ function media(arr: number[]) {
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
-// Heurística pura — base para a IA decorar com contexto.
 export async function preverProduto(produtoId: string): Promise<PrevisaoDemanda> {
   const produto = await prisma.produto.findUniqueOrThrow({
     where: { id: produtoId },
@@ -67,9 +64,7 @@ export async function preverProduto(produtoId: string): Promise<PrevisaoDemanda>
 
   const leadTime = produto.leadTimeDias;
   const fatorSeguranca = 1.4;
-  const pontoReposicaoSugerido = Math.ceil(
-    vendaMedia30d * leadTime * fatorSeguranca,
-  );
+  const pontoReposicaoSugerido = Math.ceil(vendaMedia30d * leadTime * fatorSeguranca);
   const quantidadeSugerida = Math.max(
     0,
     Math.ceil(vendaMedia30d * (leadTime + 21) - estoqueAtual),
@@ -80,7 +75,6 @@ export async function preverProduto(produtoId: string): Promise<PrevisaoDemanda>
   else if (diasCobertura <= leadTime * 1.5) riscoRuptura = "ALTO";
   else if (diasCobertura <= leadTime * 2) riscoRuptura = "MEDIO";
 
-  // IA explica e ajusta com base no contexto (sazonalidade, eventos)
   const explicacao = await explicarComIA({
     nome: produto.nome,
     estoqueAtual,
@@ -125,33 +119,29 @@ async function explicarComIA(ctx: {
   riscoRuptura: string;
 }): Promise<{ fatores: string[]; texto: string }> {
   const mes = new Date().toLocaleString("pt-BR", { month: "long" });
-  const resp = await anthropic.messages.create({
-    model: AI_MODELS.fast,
-    max_tokens: 256,
-    system: [cachedSystem(SYSTEM_PREV)],
-    messages: [
-      {
-        role: "user",
-        content: `Mês atual: ${mes}. Produto: ${ctx.nome}.
+  try {
+    const resp = await openai.chat.completions.create({
+      model: AI_MODELS.fast,
+      max_completion_tokens: 256,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM_PREV },
+        {
+          role: "user",
+          content: `Mês atual: ${mes}. Produto: ${ctx.nome}.
 Estoque: ${ctx.estoqueAtual}. Venda média 30d: ${ctx.vendaMedia30d.toFixed(2)} un/dia.
 Cobertura: ${ctx.diasCobertura} dias. Risco: ${ctx.riscoRuptura}.`,
-      },
-    ],
-  });
-  const txt = resp.content
-    .map((b) => (b.type === "text" ? b.text : ""))
-    .join("\n");
-  const m = txt.match(/\{[\s\S]*\}/);
-  if (!m) return { fatores: [], texto: "" };
-  try {
-    return JSON.parse(m[0]);
+        },
+      ],
+    });
+    const txt = resp.choices[0]?.message?.content ?? "";
+    return extrairJson<{ fatores: string[]; texto: string }>(txt);
   } catch {
     return { fatores: [], texto: "" };
   }
 }
 
-// Roda em batch e cria insights para os produtos em risco — chamado pelo
-// worker BullMQ diariamente.
+// Roda em batch e cria insights para os produtos em risco.
 export async function gerarInsightsRupturaEmpresa(empresaId: string) {
   const produtos = await prisma.produto.findMany({
     where: { empresaId, ativo: true, curva: { in: ["A", "B"] } },

@@ -1,6 +1,6 @@
 # AutoPeças ERP
 
-Sistema ERP completo para auto peças com **IA Claude no núcleo**, integração com marketplaces, frente de caixa, fiscal NF-e/NFC-e, financeiro, catálogo veicular e seis recursos de IA proprietários.
+Sistema ERP completo para auto peças com **IA OpenAI no núcleo**, integração com marketplaces, frente de caixa, fiscal NF-e/NFC-e, financeiro, catálogo veicular e seis recursos de IA proprietários.
 
 > Construído para ser o **mais completo e inovador do mercado brasileiro de gestão de auto peças** — não um clone aprimorado de Tiny/Bling, mas uma plataforma que coloca IA aplicada em todas as etapas da operação.
 
@@ -53,7 +53,7 @@ Sistema ERP completo para auto peças com **IA Claude no núcleo**, integração
 Os 12 recursos abaixo são o que o AutoPeças ERP entrega que **nenhum concorrente brasileiro tem reunido em um só produto**:
 
 ### 2.1 AutoVision AI — identificação de peça por foto
-Vendedor (ou cliente, via WhatsApp) tira uma foto da peça e a IA Claude:
+Vendedor (ou cliente, via WhatsApp) tira uma foto da peça e a IA OpenAI:
 - identifica categoria (pastilha, vela, amortecedor…),
 - lê códigos OEM e fabricante impressos,
 - detecta marca pelo logotipo,
@@ -71,7 +71,7 @@ PDF ou imagem da NF de entrada → JSON estruturado pronto para virar `NotaEntra
 > Implementação: `src/lib/ai/ocr-nf.ts` + `POST /api/ia/ocr-nf`
 
 ### 2.3 StockPredict / DemandSense — previsão de demanda híbrida
-Combina suavização exponencial + sazonalidade + janela climática + IA Claude para gerar:
+Combina suavização exponencial + sazonalidade + janela climática + IA OpenAI para gerar:
 - dias de cobertura,
 - ponto de reposição sugerido,
 - quantidade a comprar considerando lead time,
@@ -85,7 +85,7 @@ Gera `InsightIA(RUPTURA_PREDITIVA)` automaticamente para curva A e B.
 3 estratégias em cascata:
 1. Match exato de códigos OEM/fabricante/EAN.
 2. Aplicação veicular comum.
-3. Re-ranking semântico via Claude com julgamento técnico (EQUIVALENTE / SIMILAR / SUBSTITUTO / KIT_ALTERNATIVO).
+3. Re-ranking semântico via OpenAI com julgamento técnico (EQUIVALENTE / SIMILAR / SUBSTITUTO / KIT_ALTERNATIVO).
 
 Persiste como grafo direcionado em `CrossReference` com `confianca` e `fonte`.
 
@@ -140,7 +140,7 @@ Schema multi-tenant desde o dia 1 (`empresaId` em todas as entidades transaciona
 - **PostgreSQL 16** com extensões `pg_trgm`, `unaccent`, `pgvector`
 - **Prisma 5** como ORM
 - **Tailwind CSS** + shadcn/ui-style primitives
-- **Anthropic SDK** — Claude Opus 4.7 (raciocínio), Sonnet 4.6 (visão/OCR/estruturado), Haiku 4.5 (alta-frequência baixa-latência)
+- **OpenAI SDK** — GPT-4o (visão, OCR, raciocínio estruturado) e GPT-4o-mini (alta-frequência baixa-latência)
 - **BullMQ + Redis** para filas (sync de marketplaces, OCR em lote, geração de insights noturnos)
 - **Zod** para validação
 - **TanStack Query** + **Zustand** no front
@@ -152,11 +152,11 @@ Schema multi-tenant desde o dia 1 (`empresaId` em todas as entidades transaciona
 
 | Tarefa | Modelo | Razão |
 |---|---|---|
-| Análise gerencial, planejamento de compras, raciocínio multi-passo | Opus 4.7 | Precisa de cadeia de pensamento, baixa frequência |
-| AutoVision, NF-IA, SmartCross | Sonnet 4.6 | Visão excelente, custo intermediário, estruturado |
-| Chat de balcão, explicações curtas, autocomplete | Haiku 4.5 | Latência baixa, alta volumetria |
+| Análise gerencial, planejamento de compras, raciocínio multi-passo | gpt-4o | Vision multimodal, raciocínio sólido, JSON mode |
+| AutoVision, NF-IA, SmartCross | gpt-4o | Visão excelente, structured outputs, function calling |
+| Chat de balcão, explicações curtas, autocomplete | gpt-4o-mini | Latência baixa, custo até 30× menor |
 
-Prompts usam **prompt caching** com `cache_control: ephemeral` para reduzir custo em ~75% nas chamadas repetidas (system prompt idêntico).
+Prompt caching da OpenAI é automático para prompts ≥ 1024 tokens repetidos — não precisa marcar manualmente. Para trocar o modelo (gpt-5, o3, etc.), edite só `src/lib/ai/client.ts`.
 
 ---
 
@@ -169,7 +169,7 @@ Prompts usam **prompt caching** com `cache_control: ephemeral` para reduzir cust
 │  APIs        (/api/produtos, /api/vendas, /api/ia/*, ...)        │
 └─────────────┬────────────────────────────────────────────────────┘
               │
-              ├──► lib/ai/*      → Anthropic Claude (Opus/Sonnet/Haiku)
+              ├──► lib/ai/*      → OpenAI (gpt-4o, gpt-4o-mini)
               ├──► lib/marketplaces/* → ML, Shopee, Amazon (OAuth)
               ├──► lib/nfe/*     → Focus NFe (NF-e/NFC-e/SAT)
               ├──► lib/catalogo/* → consulta placa, TecDoc, busca PDV
@@ -220,12 +220,12 @@ O schema (`prisma/schema.prisma`) tem 40+ models cobrindo:
 
 | Recurso | Modelo | Endpoint | Como invocar |
 |---|---|---|---|
-| AutoVision (foto → peça) | Sonnet 4.6 | `POST /api/ia/vision` | `multipart/form-data` com `foto` |
-| NF-IA (OCR DANFE) | Sonnet 4.6 | `POST /api/ia/ocr-nf` | `multipart/form-data` com `arquivo` (PDF/IMG) |
-| StockPredict (previsão) | Haiku 4.5 + heurística | `GET /api/ia/prever-demanda?produtoId=` | Por produto |
-| StockPredict batch | Haiku 4.5 | `POST /api/ia/prever-demanda` | Gera insights da empresa |
-| SmartCross | Sonnet 4.6 | `POST /api/ia/cross-reference` | Body: `{ nome, marca, codigoOem, ... }` |
-| CopilotoBalcão (chat) | Sonnet 4.6 + tool use | `POST /api/ia/chat` | Body: `{ mensagem, historico }` |
+| AutoVision (foto → peça) | gpt-4o | `POST /api/ia/vision` | `multipart/form-data` com `foto` |
+| NF-IA (OCR DANFE) | gpt-4o | `POST /api/ia/ocr-nf` | `multipart/form-data` com `arquivo` (PDF/IMG) |
+| StockPredict (previsão) | gpt-4o-mini + heurística | `GET /api/ia/prever-demanda?produtoId=` | Por produto |
+| StockPredict batch | gpt-4o-mini | `POST /api/ia/prever-demanda` | Gera insights da empresa |
+| SmartCross | gpt-4o | `POST /api/ia/cross-reference` | Body: `{ nome, marca, codigoOem, ... }` |
+| CopilotoBalcão (chat) | gpt-4o + tool use | `POST /api/ia/chat` | Body: `{ mensagem, historico }` |
 | Insights IA | — | `GET /api/ia/insights` | Lista insights pendentes |
 | MarginGuard | (algoritmo + IA opcional) | Inline em `/api/vendas` | Avalia margem por item |
 

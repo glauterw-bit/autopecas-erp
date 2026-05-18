@@ -37,7 +37,7 @@ Matriz de funcionalidades cruzando o AutoPeças ERP com os principais players do
 | Ponto de reposição automático | ✅ | ✅ (alguns) |
 | **Previsão de demanda híbrida (ML + IA)** | ✅ StockPredict 🆕 | ❌ |
 | Reserva de estoque por pedido marketplace | ✅ | ⚠️ |
-| **OCR de NF de entrada via IA** | ✅ NF-IA 🆕 (Claude) | ⚠️ (algumas têm OCR mas exigem ajuste manual constante) |
+| **OCR de NF de entrada via IA** | ✅ NF-IA 🆕 (gpt-4o) | ⚠️ (algumas têm OCR mas exigem ajuste manual constante) |
 | Sugestão de preço de venda na entrada | ✅ | ⚠️ |
 
 ## Fiscal
@@ -85,11 +85,11 @@ Matriz de funcionalidades cruzando o AutoPeças ERP com os principais players do
 
 | Recurso de IA | AutoPeças ERP | Mercado |
 |---|---|---|
-| Identificação de peça por foto (vision) | ✅ Claude Sonnet | ❌ |
-| OCR de NF-e com 97%+ via IA | ✅ Claude Sonnet | ⚠️ (alguns têm OCR tradicional, sem visão semântica) |
-| Previsão de demanda híbrida (ML + LLM) | ✅ Claude Haiku | ❌ |
-| Cross-reference inteligente | ✅ Claude Sonnet | ❌ |
-| Chat com tool-use no catálogo | ✅ Claude Sonnet | ❌ |
+| Identificação de peça por foto (vision) | ✅ OpenAI gpt-4o | ❌ |
+| OCR de NF-e com 97%+ via IA | ✅ OpenAI gpt-4o | ⚠️ (alguns têm OCR tradicional, sem visão semântica) |
+| Previsão de demanda híbrida (ML + LLM) | ✅ OpenAI gpt-4o-mini | ❌ |
+| Cross-reference inteligente | ✅ OpenAI gpt-4o | ❌ |
+| Chat com tool-use no catálogo | ✅ OpenAI gpt-4o | ❌ |
 | Insights persistidos com feedback humano | ✅ | ❌ |
 | Prompt caching (75% economia) | ✅ | n/a |
 | Score de crédito IA | ✅ planejado | ❌ |

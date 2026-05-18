@@ -1,51 +1,48 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
-// Cliente Claude usado em todos os recursos de IA do sistema.
+// Cliente OpenAI usado em todos os recursos de IA do sistema.
 //
 // Estratégia de modelos:
-// - claude-opus-4-7   → raciocínio profundo (análises gerenciais, planejamento de compras)
-// - claude-sonnet-4-6 → tarefas estruturadas (OCR de NF-e, vision, extração de dados)
-// - claude-haiku-4-5  → alta-frequência baixa-latência (autocomplete, chat de balcão)
+// - reasoning → tarefas com cadeia de pensamento longa (análise gerencial)
+// - default   → tarefas estruturadas com visão (OCR, vision, extração)
+// - fast      → alta-frequência baixa-latência (chat, autocomplete, explicações curtas)
+//
+// Centralizamos os nomes aqui; trocar de modelo afeta o sistema inteiro.
 
-export const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY ?? "",
+export const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY ?? "",
 });
 
 export const AI_MODELS = {
-  reasoning: "claude-opus-4-7",
-  default: "claude-sonnet-4-6",
-  fast: "claude-haiku-4-5-20251001",
+  reasoning: "gpt-4o",
+  default: "gpt-4o",
+  fast: "gpt-4o-mini",
 } as const;
 
 export type AiModel = (typeof AI_MODELS)[keyof typeof AI_MODELS];
 
-// Prompt caching: a maioria dos prompts deste sistema reusa o mesmo
-// "system" (regras de negócio, tabela de equivalências curtas, prompt
-// engineering). Isso baixa drasticamente o custo. Helpers abaixo já marcam
-// o cache_control nos blocos certos.
-
-export function cachedSystem(text: string): Anthropic.Messages.TextBlockParam {
-  return {
-    type: "text",
-    text,
-    cache_control: { type: "ephemeral" },
-  };
-}
-
+// Helper: chamada padrão pra Chat Completions com forçagem opcional de JSON.
+// A OpenAI faz prompt caching automaticamente em prompts >= 1024 tokens.
 export async function completar(opts: {
   modelo?: AiModel;
-  system: string | Anthropic.Messages.TextBlockParam[];
-  mensagens: Anthropic.Messages.MessageParam[];
+  system: string;
+  mensagens: OpenAI.Chat.ChatCompletionMessageParam[];
   maxTokens?: number;
-  tools?: Anthropic.Messages.Tool[];
+  json?: boolean;
+  tools?: OpenAI.Chat.ChatCompletionTool[];
 }) {
-  const resp = await anthropic.messages.create({
+  return openai.chat.completions.create({
     model: opts.modelo ?? AI_MODELS.default,
-    max_tokens: opts.maxTokens ?? 2048,
-    system:
-      typeof opts.system === "string" ? [cachedSystem(opts.system)] : opts.system,
-    messages: opts.mensagens,
+    max_completion_tokens: opts.maxTokens ?? 2048,
+    response_format: opts.json ? { type: "json_object" } : undefined,
+    messages: [{ role: "system", content: opts.system }, ...opts.mensagens],
     tools: opts.tools,
   });
-  return resp;
+}
+
+// Extrai o primeiro JSON válido de uma resposta da IA (defensivo).
+export function extrairJson<T>(texto: string): T {
+  const m = texto.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error("Resposta da IA não contém JSON válido");
+  return JSON.parse(m[0]) as T;
 }

@@ -1,6 +1,6 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 import { prisma } from "../db";
-import { AI_MODELS, anthropic, cachedSystem } from "./client";
+import { AI_MODELS, openai } from "./client";
 
 // CopilotoBalcão / OmniInbox
 // ==========================
@@ -9,7 +9,7 @@ import { AI_MODELS, anthropic, cachedSystem } from "./client";
 //   - WhatsApp: cliente final tira dúvidas e o bot responde com peças disponíveis
 //   - OmniInbox: respostas sugeridas em todos os marketplaces
 //
-// Usa tool use para consultar o catálogo do tenant em tempo real.
+// Usa function calling para consultar o catálogo do tenant em tempo real.
 
 const SYSTEM_CHAT = `Você é o assistente do AutoPeças ERP, especialista em peças automotivas brasileiras.
 COMPORTAMENTO:
@@ -20,54 +20,62 @@ COMPORTAMENTO:
 - Quando não encontrar a peça, ofereça registrar pedido sob encomenda.
 - Em pedidos de orçamento, monte resposta com tabela curta: peça, marca, preço, garantia.`;
 
-const TOOLS: Anthropic.Messages.Tool[] = [
+const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
   {
-    name: "buscar_peca",
-    description:
-      "Busca peças no catálogo da loja por termo livre, código OEM, código de barras ou aplicação veicular.",
-    input_schema: {
-      type: "object",
-      properties: {
-        termo: { type: "string", description: "Termo de busca livre" },
-        montadora: { type: "string" },
-        modelo: { type: "string" },
-        ano: { type: "integer" },
-        sistema: { type: "string" },
-        limite: { type: "integer", default: 8 },
+    type: "function",
+    function: {
+      name: "buscar_peca",
+      description:
+        "Busca peças no catálogo da loja por termo livre, código OEM, código de barras ou aplicação veicular.",
+      parameters: {
+        type: "object",
+        properties: {
+          termo: { type: "string", description: "Termo de busca livre" },
+          montadora: { type: "string" },
+          modelo: { type: "string" },
+          ano: { type: "integer" },
+          sistema: { type: "string" },
+          limite: { type: "integer", default: 8 },
+        },
+        required: ["termo"],
       },
-      required: ["termo"],
     },
   },
   {
-    name: "verificar_disponibilidade",
-    description: "Verifica o estoque atual e o preço de um produto pelo ID.",
-    input_schema: {
-      type: "object",
-      properties: { produtoId: { type: "string" } },
-      required: ["produtoId"],
+    type: "function",
+    function: {
+      name: "verificar_disponibilidade",
+      description: "Verifica o estoque atual e o preço de um produto pelo ID.",
+      parameters: {
+        type: "object",
+        properties: { produtoId: { type: "string" } },
+        required: ["produtoId"],
+      },
     },
   },
   {
-    name: "registrar_orcamento",
-    description:
-      "Cria um orçamento aberto com os itens listados para o cliente atual.",
-    input_schema: {
-      type: "object",
-      properties: {
-        clienteId: { type: "string" },
-        itens: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              produtoId: { type: "string" },
-              quantidade: { type: "number" },
+    type: "function",
+    function: {
+      name: "registrar_orcamento",
+      description: "Cria um orçamento aberto com os itens listados para o cliente atual.",
+      parameters: {
+        type: "object",
+        properties: {
+          clienteId: { type: "string" },
+          itens: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                produtoId: { type: "string" },
+                quantidade: { type: "number" },
+              },
+              required: ["produtoId", "quantidade"],
             },
-            required: ["produtoId", "quantidade"],
           },
         },
+        required: ["clienteId", "itens"],
       },
-      required: ["clienteId", "itens"],
     },
   },
 ];
@@ -163,50 +171,52 @@ export async function conversarChat(opts: {
   empresaId: string;
   conversaId?: string;
   mensagemUsuario: string;
-  historico?: Anthropic.Messages.MessageParam[];
+  historico?: OpenAI.Chat.ChatCompletionMessageParam[];
 }) {
   const handlers = buildHandlers(opts.empresaId);
-  const mensagens: Anthropic.Messages.MessageParam[] = [
+  const mensagens: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: SYSTEM_CHAT },
     ...(opts.historico ?? []),
     { role: "user", content: opts.mensagemUsuario },
   ];
 
   // Loop de tool-use até o modelo retornar resposta final.
   for (let iter = 0; iter < 6; iter++) {
-    const resp = await anthropic.messages.create({
+    const resp = await openai.chat.completions.create({
       model: AI_MODELS.default,
-      max_tokens: 1024,
-      system: [cachedSystem(SYSTEM_CHAT)],
+      max_completion_tokens: 1024,
       tools: TOOLS,
       messages: mensagens,
     });
 
-    if (resp.stop_reason !== "tool_use") {
-      const textoFinal = resp.content
-        .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
-      mensagens.push({ role: "assistant", content: resp.content });
-      return { resposta: textoFinal, mensagens };
+    const msg = resp.choices[0]?.message;
+    if (!msg) break;
+
+    if (!msg.tool_calls || msg.tool_calls.length === 0) {
+      mensagens.push(msg);
+      return { resposta: msg.content ?? "", mensagens };
     }
 
-    // Executa as ferramentas solicitadas.
-    const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
-    for (const block of resp.content) {
-      if (block.type === "tool_use") {
-        const handler = handlers[block.name];
-        const output = handler
-          ? await handler(block.input as Record<string, unknown>)
-          : { erro: `Ferramenta desconhecida: ${block.name}` };
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: JSON.stringify(output),
-        });
+    // Adiciona a chamada do assistente antes dos resultados.
+    mensagens.push(msg);
+    for (const call of msg.tool_calls) {
+      if (call.type !== "function") continue;
+      const handler = handlers[call.function.name];
+      let output: unknown;
+      try {
+        const args = JSON.parse(call.function.arguments) as Record<string, unknown>;
+        output = handler
+          ? await handler(args)
+          : { erro: `Ferramenta desconhecida: ${call.function.name}` };
+      } catch (e) {
+        output = { erro: (e as Error).message };
       }
+      mensagens.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify(output),
+      });
     }
-    mensagens.push({ role: "assistant", content: resp.content });
-    mensagens.push({ role: "user", content: toolResults });
   }
   return { resposta: "Desculpe, não consegui concluir agora.", mensagens };
 }

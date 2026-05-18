@@ -1,5 +1,5 @@
 import { prisma } from "../db";
-import { AI_MODELS, anthropic, cachedSystem } from "./client";
+import { AI_MODELS, extrairJson, openai } from "./client";
 
 // SmartCross
 // ==========
@@ -90,11 +90,12 @@ export async function buscarEquivalentes(
   if (candidatos.length === 0) return [];
 
   // 3. Re-ranking via IA
-  const resp = await anthropic.messages.create({
+  const resp = await openai.chat.completions.create({
     model: AI_MODELS.default,
-    max_tokens: 1024,
-    system: [cachedSystem(SYSTEM_SMART_CROSS)],
+    max_completion_tokens: 1024,
+    response_format: { type: "json_object" },
     messages: [
+      { role: "system", content: SYSTEM_SMART_CROSS },
       {
         role: "user",
         content: `Peça-alvo:
@@ -108,10 +109,8 @@ Avalie cada candidato e devolva apenas o JSON.`,
     ],
   });
 
-  const txt = resp.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
-  const m = txt.match(/\{[\s\S]*\}/);
-  if (!m) return [];
-  const parsed = JSON.parse(m[0]) as { resultados: ResultadoCross[] };
+  const txt = resp.choices[0]?.message?.content ?? "";
+  const parsed = extrairJson<{ resultados: ResultadoCross[] }>(txt);
   const byId = new Map(candidatos.map((c) => [c.id, c]));
   return parsed.resultados
     .filter((r) => r.tipo !== "NAO_COMPATIVEL")
@@ -127,9 +126,7 @@ Avalie cada candidato e devolva apenas o JSON.`,
 export async function salvarCrossReference(
   origemId: string,
   destinoId: string,
-  tipo: ResultadoCross["tipo"] extends "NAO_COMPATIVEL"
-    ? never
-    : "EQUIVALENTE" | "SIMILAR" | "SUBSTITUTO" | "KIT_ALTERNATIVO",
+  tipo: "EQUIVALENTE" | "SIMILAR" | "SUBSTITUTO" | "KIT_ALTERNATIVO",
   confianca: number,
   fonte = "IA-SmartCross",
 ) {

@@ -12,12 +12,12 @@ Documento descrevendo as decisões arquiteturais por trás do AutoPeças ERP e c
 
 ## 2. Decisões importantes
 
-### 2.1 Por que Claude (Anthropic) e não outro provedor?
+### 2.1 Por que OpenAI?
 
 - **Visão computacional** robusta o suficiente para identificar peças e ler DANFEs (~97% de acurácia em OCR fiscal nos benchmarks de IDP).
-- **Tool use** confiável — viabiliza CopilotoBalcão que executa funções reais no banco.
-- **Prompt caching** reduz custo em ~75% quando o system prompt repete (caso de praticamente toda chamada do nosso sistema).
-- **Janela de contexto** de 1M tokens permite passar catálogos inteiros como contexto quando útil.
+- **Function calling** confiável — viabiliza o CopilotoBalcão que executa funções reais no banco.
+- **Prompt caching automático** para prompts ≥ 1024 tokens repetidos — reduz custo sem precisar marcar manualmente.
+- **Structured outputs / JSON mode** — garante que o OCR e o vision sempre devolvem JSON parseável.
 
 ### 2.2 Por que PostgreSQL + pgvector e não Pinecone/Weaviate?
 
@@ -66,7 +66,7 @@ POST /api/vendas/[id]/faturar → Focus NFe → NotaFiscal autorizada
 ```
 [Upload DANFE]
      ↓
-POST /api/ia/ocr-nf  (Claude Sonnet vision)
+POST /api/ia/ocr-nf  (OpenAI gpt-4o vision)
      ↓
 [JSON estruturado: emitente, itens com NCM/CFOP/valores]
      ↓
@@ -86,7 +86,7 @@ POST /api/ia/ocr-nf  (Claude Sonnet vision)
 [adaptador.listarPedidosRecentes]   → upsert MarketplacePedido
      ↓ se pedido novo, criar Venda + reserva estoque
 [adaptador.listarMensagensNaoLidas]   → upsert MensagemMarketplace
-     ↓ Haiku gera rascunho_ia automaticamente
+     ↓ gpt-4o-mini gera rascunho_ia automaticamente
 ```
 
 ### 3.4 StockPredict diário
@@ -117,7 +117,7 @@ POST /api/ia/ocr-nf  (Claude Sonnet vision)
 - Server Components reduzem JS no cliente — PDV carrega rápido mesmo em rede 3G.
 - Prisma com `select` explícito em queries hot.
 - Índices compostos em `(empresaId, ativo)`, `(empresaId, criadaEm)`, etc.
-- Prompt caching no Claude → custo de chamadas idênticas cai ~75%.
+- Prompt caching no OpenAI → custo de chamadas idênticas cai ~75%.
 - Cache de produtos consultados frequentemente via TanStack Query no cliente.
 
 ## 6. Pontos de extensão
