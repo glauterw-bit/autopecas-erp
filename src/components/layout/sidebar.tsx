@@ -16,6 +16,8 @@ import {
   BarChart3,
   Settings,
   Scan,
+  FileText,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +30,8 @@ const itens = [
   { href: "/fornecedores", label: "Fornecedores", icon: Truck },
   { href: "/compras", label: "Compras / NF-IA", icon: Scan },
   { href: "/financeiro", label: "Financeiro", icon: Wallet },
+  { href: "/fiscal", label: "Fiscal NF-e", icon: FileText },
+  { href: "/contabil", label: "Contábil / SPED", icon: BookOpen },
   { href: "/marketplaces", label: "Marketplaces", icon: Store },
   { href: "/ia", label: "Centro de IA", icon: Sparkles, accent: true },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },

@@ -1,5 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { AmazonAdapter } from "./amazon";
+import { MagaluAdapter } from "./magalu";
 import { MercadoLivreAdapter } from "./mercado-livre";
 import { ShopeeAdapter } from "./shopee";
 import type { AdaptadorMarketplace } from "./types";
@@ -16,6 +18,10 @@ export function adaptadorDe(plataforma: string, contaId: string): AdaptadorMarke
       return new MercadoLivreAdapter(contaId);
     case "SHOPEE":
       return new ShopeeAdapter(contaId);
+    case "AMAZON":
+      return new AmazonAdapter(contaId);
+    case "MAGALU":
+      return new MagaluAdapter(contaId);
     default:
       throw new Error(`Plataforma ${plataforma} não suportada`);
   }

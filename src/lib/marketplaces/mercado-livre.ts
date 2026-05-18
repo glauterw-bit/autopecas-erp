@@ -190,6 +190,89 @@ export class MercadoLivreAdapter implements AdaptadorMarketplace {
       compatibilities: compatibilidades,
     });
   }
+
+  // Publica um anúncio novo no ML a partir de um produto interno.
+  async publicarAnuncio(opts: {
+    titulo: string;
+    categoryId: string;        // ex.: MLB1183 (Auto peças)
+    preco: number;
+    quantidade: number;
+    condicao: "new" | "used";
+    descricao: string;
+    fotos: string[];           // URLs públicas
+    sku: string;
+    listingTypeId?: string;    // "gold_pro" | "gold_special" | "free" ...
+    atributos?: Array<{ id: string; value_name: string }>;
+  }) {
+    const http = await this.axiosInstance();
+    const body = {
+      title: opts.titulo,
+      category_id: opts.categoryId,
+      price: opts.preco,
+      currency_id: "BRL",
+      available_quantity: opts.quantidade,
+      buying_mode: "buy_it_now",
+      condition: opts.condicao,
+      listing_type_id: opts.listingTypeId ?? "gold_special",
+      description: { plain_text: opts.descricao },
+      pictures: opts.fotos.map((url) => ({ source: url })),
+      attributes: [
+        { id: "SELLER_SKU", value_name: opts.sku },
+        ...(opts.atributos ?? []),
+      ],
+    };
+    const { data } = await http.post(`/items`, body);
+    return data;
+  }
+
+  // Perguntas pré-venda — gatekeeping para fechamento.
+  async listarPerguntasPendentes() {
+    const http = await this.axiosInstance();
+    const conta = await prisma.marketplaceConta.findUniqueOrThrow({
+      where: { id: this.contaId },
+    });
+    const { data } = await http.get(`/questions/search`, {
+      params: { seller_id: conta.contaExternaId, status: "UNANSWERED" },
+    });
+    type Pergunta = {
+      id: number;
+      text: string;
+      item_id: string;
+      from: { id: number; nickname?: string };
+      date_created: string;
+    };
+    return ((data.questions ?? []) as Pergunta[]).map((p) => ({
+      id: p.id,
+      texto: p.text,
+      itemId: p.item_id,
+      compradorId: p.from.id,
+      compradorNick: p.from.nickname,
+      dataCriacao: new Date(p.date_created),
+    }));
+  }
+
+  async responderPergunta(questionId: number, texto: string) {
+    const http = await this.axiosInstance();
+    await http.post(`/answers`, { question_id: questionId, text: texto });
+  }
+
+  // Mercado Envios — gera etiqueta de envio de um pedido (shipment).
+  async gerarEtiquetaEnvio(shipmentId: string) {
+    const http = await this.axiosInstance();
+    const { data } = await http.get(`/shipment_labels`, {
+      params: { shipment_ids: shipmentId, response_type: "pdf" },
+      responseType: "arraybuffer",
+    });
+    return data as Buffer;
+  }
+
+  // Buscar categorias do ML para o auto peças (MLB1747 é "Acessórios para Veículos")
+  async buscarCategoriasAutoPecas() {
+    const http = await this.axiosInstance();
+    const { data } = await http.get(`/sites/MLB/categories`);
+    type Cat = { id: string; name: string };
+    return (data as Cat[]).filter((c) => c.name.match(/Auto|Peça|Veículo|Motos/i));
+  }
 }
 
 type AnuncioMLRaw = {

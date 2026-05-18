@@ -19,6 +19,29 @@ Sistema ERP completo para auto peças com **IA OpenAI no núcleo**, integração
 
 ---
 
+## Matriz de cobertura (estado real do código)
+
+| Área | Status | Notas |
+|---|---|---|
+| **Mercado Livre** | ✅ completo | sync + publicar anúncio + compatibilidade auto peças + perguntas + Mercado Envios |
+| **Shopee** | ✅ funcional | sync de anúncios e pedidos com assinatura HMAC |
+| **Amazon SP-API** | ✅ funcional | LWA OAuth, Listings Items API, Orders API |
+| **Magalu Marketplace** | ✅ funcional | Portfolio + Orders + Pricing + Stocks API |
+| **WhatsApp Business** | ✅ in/out | webhook inbound + envio texto/template/imagem via Graph API |
+| **NF-e 55 / NFC-e 65** | ✅ completo | emissão + cancelamento + CC-e + inutilização + manifestação destinatário |
+| **Motor fiscal BR** | ✅ completo | ICMS 27 UFs, ICMS-ST com MVA-ajustada, DIFAL + FCP, IPI, PIS/COFINS |
+| **SPED ECD** (contábil) | ✅ exporta TXT oficial | registros 0000, I010, I012, I050, I200, I250, 9999 |
+| **SPED EFD-ICMS/IPI** | ✅ exporta TXT oficial | registros 0000, 0150, 0200, C100, C170, 9999 |
+| **DRE / Plano de contas BR** | ✅ | ITG 1000 padrão para varejo de auto peças, DRE automático |
+| **Livro Razão** | ✅ | extrato por conta no período |
+| **Balanço Patrimonial** | ⚠️ roadmap | há os dados — falta o relatório |
+| **PGDAS-D (Simples)** | ⚠️ roadmap | cálculo manual hoje |
+| **MDF-e / CT-e** | ⚠️ roadmap | transportadora apenas |
+| **NFS-e municipal** | ⚠️ roadmap | cada município é um padrão |
+| **TEF / SAT** | ⚠️ roadmap | integração com PinPad/SiTef |
+
+> **O que está marcado ✅ é código real e tipado**, não promessa. **⚠️ roadmap** é o que ainda precisamos para chegar a 100% de cobertura do nicho.
+
 ## 1. Pesquisa de mercado
 
 ### Principais concorrentes no Brasil (2026)
