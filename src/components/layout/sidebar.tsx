@@ -19,6 +19,8 @@ import {
   FileText,
   BookOpen,
   HardDrive,
+  RotateCcw,
+  Percent,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,9 +33,11 @@ const itens = [
   { href: "/fornecedores", label: "Fornecedores", icon: Truck },
   { href: "/compras", label: "Compras / NF-IA", icon: Scan },
   { href: "/financeiro", label: "Financeiro", icon: Wallet },
+  { href: "/comissoes", label: "Comissões", icon: Percent },
   { href: "/fiscal", label: "Fiscal NF-e", icon: FileText },
   { href: "/contabil", label: "Contábil / SPED", icon: BookOpen },
   { href: "/marketplaces", label: "Marketplaces", icon: Store },
+  { href: "/rma", label: "RMA / Devoluções", icon: RotateCcw },
   { href: "/hardware", label: "Hardware PDV", icon: HardDrive },
   { href: "/ia", label: "Centro de IA", icon: Sparkles, accent: true },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },

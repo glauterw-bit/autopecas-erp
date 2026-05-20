@@ -46,8 +46,13 @@ Sistema ERP completo para auto peças com **IA OpenAI no núcleo**, integração
 | **SAT-CF-e modelo 59** | ✅ | SatLocalClient (SP e estados que usam SAT) |
 | **Impressora ESC/POS** | ✅ | builder com QR Code, abertura de gaveta, cupom NFC-e |
 | **Leitor código barras** | ✅ | nativo HID no PDV (sem driver) |
+| **Pix dinâmico** | ✅ | BR Code EMV com CRC16, cliente PSP (BB/Bradesco/Sicoob/Inter) |
+| **DCTF Web / DEFIS / EFD-Reinf** | ✅ | apuração mensal e anual com retenções R-2010/R-2099 |
+| **Importador TecDoc** | ✅ | CSV bulk (manufacturers/models/types/articles/compatibilities) |
+| **RMA / Devolução / Garantia** | ✅ | fluxo CDC: abrir → autorizar → receber → reembolso/troca/garantia |
+| **Comissionamento vendedores** | ✅ | % venda, % margem, escalonado, fixo; overrides por categoria/marca |
+| **PWA Mobile vendedor externo** | ✅ | `/m` com scanner câmera (BarcodeDetector), service worker offline |
 | **Balança checkout** | ⚠️ roadmap | Toledo / Filizola via Agente Local |
-| **DCTF / DEFIS / EFD-Reinf** | ⚠️ roadmap | obrigações secundárias |
 
 > **Todo ✅ é código real**, não promessa. Cada item linka para o arquivo correspondente em `src/lib/`.
 

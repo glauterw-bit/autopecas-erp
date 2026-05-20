@@ -1415,6 +1415,148 @@ enum PapelMensagem {
 }
 
 // =========================================================================
+// RMA / DEVOLUÇÃO / GARANTIA
+// =========================================================================
+// Fluxo: cliente solicita → loja autoriza (com nº RMA) → cliente devolve →
+//        loja recebe e inspeciona → reembolso / troca / reparo / recusa.
+// Em auto peças há também a "garantia de fábrica" que pode redirecionar a
+// peça para o fornecedor (troca em garantia).
+
+model SolicitacaoRMA {
+  id              String   @id @default(cuid())
+  empresaId       String
+  numeroRMA       Int      // sequencial por empresa
+  vendaId         String?
+  itemVendaId     String?
+  produtoId       String
+  clienteId       String?
+  motivo          MotivoDevolucao
+  descricao       String?
+  fotos           String[] @default([])
+  quantidade      Decimal  @default(1) @db.Decimal(14, 3)
+  status          StatusRMA @default(AGUARDANDO_AUTORIZACAO)
+  resolucao       ResolucaoRMA?
+  valorReembolso  Decimal? @db.Decimal(14, 2)
+  novoItemVendaId String?  // se troca
+  contaReceberId  String?
+  trocaGarantiaFornecedorId String? // se foi p/ garantia fornecedor
+  abertaEm        DateTime @default(now())
+  autorizadaEm    DateTime?
+  recebidaEm      DateTime?
+  resolvidaEm     DateTime?
+  observacoes     String?  @db.Text
+  inspecionadoPor String?
+
+  @@unique([empresaId, numeroRMA])
+  @@index([empresaId, status])
+  @@map("solicitacoes_rma")
+}
+
+enum MotivoDevolucao {
+  DEFEITO_FABRICACAO
+  PECA_ERRADA
+  PECA_INCOMPATIVEL
+  AVARIA_TRANSPORTE
+  ARREPENDIMENTO
+  EXCESSO_PEDIDO
+  PRAZO_VALIDADE
+  OUTROS
+}
+
+enum StatusRMA {
+  AGUARDANDO_AUTORIZACAO
+  AUTORIZADA
+  AGUARDANDO_RECEBIMENTO
+  RECEBIDA
+  EM_ANALISE
+  APROVADA
+  RECUSADA
+  CONCLUIDA
+}
+
+enum ResolucaoRMA {
+  REEMBOLSO
+  TROCA_MESMO_PRODUTO
+  TROCA_OUTRO_PRODUTO
+  CREDITO_LOJA
+  REPARO
+  GARANTIA_FORNECEDOR
+  RECUSADA
+}
+
+// Garantia ativa do cliente — registro de cada item vendido sob garantia.
+// Permite consulta "tenho garantia nesta peça?" sem perder no histórico.
+model GarantiaItem {
+  id            String   @id @default(cuid())
+  itemVendaId   String   @unique
+  produtoId     String
+  clienteId     String?
+  inicioGarantia DateTime
+  fimGarantia    DateTime
+  meses          Int
+  acionada       Boolean  @default(false)
+  rmaId          String?
+
+  @@index([clienteId, fimGarantia])
+  @@map("garantias_item")
+}
+
+// =========================================================================
+// COMISSIONAMENTO DE VENDEDORES
+// =========================================================================
+
+model RegraComissao {
+  id                String   @id @default(cuid())
+  empresaId         String
+  nome              String
+  ativa             Boolean  @default(true)
+  tipoCalculo       TipoCalculoComissao @default(PERCENTUAL_VENDA)
+  percentualBase    Decimal? @db.Decimal(6, 4)
+  bonificacaoMeta   Decimal? @db.Decimal(14, 2)
+  metaMensal        Decimal? @db.Decimal(14, 2)
+  // override por categoria/marca (JSON: { categoriaId: percentual })
+  overridesCategoria Json?
+  overridesMarca    Json?
+  // descontar margem queimada?
+  abaterMargemBaixa Boolean  @default(true)
+  criadoEm          DateTime @default(now())
+
+  apuracoes         ApuracaoComissao[]
+
+  @@map("regras_comissao")
+}
+
+enum TipoCalculoComissao {
+  PERCENTUAL_VENDA       // sobre valor da venda
+  PERCENTUAL_MARGEM      // sobre margem bruta
+  ESCALONADA             // por faixa de venda mensal
+  FIXA_POR_PEDIDO        // valor fixo por venda
+}
+
+model ApuracaoComissao {
+  id              String   @id @default(cuid())
+  empresaId       String
+  vendedorId      String
+  regraId         String
+  regra           RegraComissao @relation(fields: [regraId], references: [id])
+  competencia     String   // YYYY-MM
+  totalVendido    Decimal  @db.Decimal(14, 2)
+  totalMargem     Decimal  @db.Decimal(14, 2)
+  valorComissao   Decimal  @db.Decimal(14, 2)
+  bonificacao     Decimal  @default(0) @db.Decimal(14, 2)
+  meta            Decimal? @db.Decimal(14, 2)
+  atingimento     Decimal? @db.Decimal(6, 4)
+  detalhe         Json?
+  pago            Boolean  @default(false)
+  pagoEm          DateTime?
+  contaPagarId    String?
+  criadoEm        DateTime @default(now())
+
+  @@unique([empresaId, vendedorId, competencia])
+  @@map("apuracoes_comissao")
+}
+
+// =========================================================================
 // AUDITORIA / LOG
 // =========================================================================
 
