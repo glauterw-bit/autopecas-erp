@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { BookOpen, Download, FileSpreadsheet, ScrollText } from "lucide-react";
+import { BookOpen, Download, FileSpreadsheet, ScrollText, Scale, Wallet, TrendingUp } from "lucide-react";
 import { gerarDRE } from "@/lib/contabil/dre";
+import { gerarBalanco, gerarDFC, gerarDLPA } from "@/lib/contabil/balanco";
 import { PLANO_PADRAO_AUTOPECAS } from "@/lib/contabil/plano-contas";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +15,12 @@ export default async function ContabilPage() {
   const empresaId = await empresaAtualId();
   const hoje = new Date();
   const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  const dre = await gerarDRE({ empresaId, inicio, fim: hoje });
+  const [dre, bp, dfc, dlpa] = await Promise.all([
+    gerarDRE({ empresaId, inicio, fim: hoje }),
+    gerarBalanco({ empresaId, dataReferencia: hoje }),
+    gerarDFC({ empresaId, inicio, fim: hoje }),
+    gerarDLPA({ empresaId, exercicio: hoje.getFullYear() }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -25,7 +31,7 @@ export default async function ContabilPage() {
             Plano de contas padrão BR, DRE, livro razão, SPED ECD e EFD-ICMS/IPI.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <Link href="/api/contabil/sped?tipo=ECD" target="_blank">
               <Download className="h-4 w-4" /> SPED ECD
@@ -34,6 +40,11 @@ export default async function ContabilPage() {
           <Button asChild variant="outline">
             <Link href="/api/contabil/sped?tipo=EFD" target="_blank">
               <Download className="h-4 w-4" /> SPED EFD
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/api/contabil/sped-contribuicoes" target="_blank">
+              <Download className="h-4 w-4" /> SPED Contrib.
             </Link>
           </Button>
         </div>
@@ -85,6 +96,107 @@ export default async function ContabilPage() {
         </CardContent>
       </Card>
 
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Scale className="h-4 w-4" /> Balanço Patrimonial — {hoje.toLocaleDateString("pt-BR")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 text-sm">
+            <table className="w-full">
+              <thead className="border-b bg-secondary text-left">
+                <tr>
+                  <th className="px-4 py-2">Ativo</th>
+                  <th className="px-4 py-2 text-right">R$</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bp.ativo.circulante.map((l) => (
+                  <tr key={l.rotulo} className="border-b">
+                    <td className="px-4 py-1.5 pl-8 text-muted-foreground">{l.rotulo}</td>
+                    <td className="px-4 py-1.5 text-right font-mono">{formatBRL(l.valor)}</td>
+                  </tr>
+                ))}
+                <tr className="border-b bg-secondary/40 font-semibold">
+                  <td className="px-4 py-2">Total do Ativo</td>
+                  <td className="px-4 py-2 text-right font-mono">{formatBRL(bp.ativo.total)}</td>
+                </tr>
+                <tr><td colSpan={2} className="px-4 py-2 bg-secondary/60 text-left font-semibold">Passivo + PL</td></tr>
+                {[...bp.passivo.circulante, ...bp.passivo.naoCirculante, ...bp.passivo.patrimonioLiquido].map((l) => (
+                  <tr key={l.rotulo} className="border-b">
+                    <td className="px-4 py-1.5 pl-8 text-muted-foreground">{l.rotulo}</td>
+                    <td className="px-4 py-1.5 text-right font-mono">{formatBRL(l.valor)}</td>
+                  </tr>
+                ))}
+                <tr className="border-b bg-secondary/40 font-semibold">
+                  <td className="px-4 py-2">Total Passivo + PL</td>
+                  <td className="px-4 py-2 text-right font-mono">{formatBRL(bp.passivo.total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wallet className="h-4 w-4" /> Fluxo de Caixa (DFC) — método indireto
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 text-sm">
+            <table className="w-full">
+              <tbody>
+                {[
+                  { titulo: "Atividades Operacionais", linhas: dfc.atividadesOperacionais },
+                  { titulo: "Atividades de Investimento", linhas: dfc.atividadesInvestimento },
+                  { titulo: "Atividades de Financiamento", linhas: dfc.atividadesFinanciamento },
+                ].map((bloco) => (
+                  <>
+                    <tr key={bloco.titulo} className="bg-secondary/60">
+                      <td colSpan={2} className="px-4 py-2 font-semibold">{bloco.titulo}</td>
+                    </tr>
+                    {bloco.linhas.map((l) => (
+                      <tr key={l.rotulo} className="border-b">
+                        <td className="px-4 py-1.5 pl-8 text-muted-foreground">{l.rotulo}</td>
+                        <td className={`px-4 py-1.5 text-right font-mono ${l.valor < 0 ? "text-red-600" : ""}`}>{formatBRL(l.valor)}</td>
+                      </tr>
+                    ))}
+                  </>
+                ))}
+                <tr className="border-b bg-secondary/40 font-semibold">
+                  <td className="px-4 py-2">Variação de Caixa</td>
+                  <td className="px-4 py-2 text-right font-mono">{formatBRL(dfc.variacaoCaixa)}</td>
+                </tr>
+                <tr className="border-b">
+                  <td className="px-4 py-2">Saldo Final</td>
+                  <td className="px-4 py-2 text-right font-mono">{formatBRL(dfc.saldoFinal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" /> DLPA — Lucros / Prejuízos Acumulados ({dlpa.exercicio})
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 text-sm">
+          <table className="w-full">
+            <tbody>
+              <tr className="border-b"><td className="px-4 py-1.5">Saldo Inicial</td><td className="px-4 py-1.5 text-right font-mono">{formatBRL(dlpa.saldoInicial)}</td></tr>
+              <tr className="border-b"><td className="px-4 py-1.5">(+) Lucro do Exercício</td><td className="px-4 py-1.5 text-right font-mono">{formatBRL(dlpa.lucroExercicio)}</td></tr>
+              <tr className="border-b"><td className="px-4 py-1.5">(-) Reserva Legal (5%)</td><td className="px-4 py-1.5 text-right font-mono">{formatBRL(dlpa.reservaLegal)}</td></tr>
+              <tr className="border-b"><td className="px-4 py-1.5">(-) Dividendos</td><td className="px-4 py-1.5 text-right font-mono">{formatBRL(dlpa.dividendos)}</td></tr>
+              <tr className="border-b bg-secondary/40 font-semibold"><td className="px-4 py-2">Saldo Final</td><td className="px-4 py-2 text-right font-mono">{formatBRL(dlpa.saldoFinal)}</td></tr>
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -126,19 +238,23 @@ export default async function ContabilPage() {
             </div>
             <div className="flex items-center justify-between rounded-md border p-3">
               <span>SPED Contribuições (PIS/COFINS)</span>
-              <Badge variant="warning">roadmap</Badge>
+              <Badge variant="success">disponível</Badge>
             </div>
             <div className="flex items-center justify-between rounded-md border p-3">
               <span>PGDAS-D (Simples Nacional)</span>
-              <Badge variant="warning">roadmap</Badge>
-            </div>
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <span>DCTF / DEFIS</span>
-              <Badge variant="warning">roadmap</Badge>
+              <Badge variant="success">disponível</Badge>
             </div>
             <div className="flex items-center justify-between rounded-md border p-3">
               <span>DRE / Balanço Patrimonial</span>
               <Badge variant="success">disponível</Badge>
+            </div>
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <span>DFC + DLPA</span>
+              <Badge variant="success">disponível</Badge>
+            </div>
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <span>DCTF / DEFIS / EFD-Reinf</span>
+              <Badge variant="warning">roadmap</Badge>
             </div>
           </CardContent>
         </Card>

@@ -1,4 +1,4 @@
-import { FileCheck2, FileX2, FileEdit, ShieldCheck, Calculator, Download } from "lucide-react";
+import { FileCheck2, FileX2, FileEdit, ShieldCheck, Calculator, Download, Wrench, Truck, FileBarChart, Banknote } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,6 +58,41 @@ export default async function FiscalPage() {
       titulo: "SPED Fiscal (EFD-ICMS/IPI)",
       descricao: "Exporta TXT no leiaute oficial (Bloco 0, C100/C170, 9999).",
       acao: "GET /api/contabil/sped?tipo=EFD",
+    },
+    {
+      icon: Wrench,
+      titulo: "NFS-e municipal",
+      descricao:
+        "Emissão para serviços de oficina (LC 116/2003 códigos 14.01-14.13). Padrão ABRASF + provedores municipais.",
+      acao: "POST /api/fiscal/nfse { acao: 'emitir' }",
+    },
+    {
+      icon: Truck,
+      titulo: "MDF-e (Manifesto)",
+      descricao:
+        "Para transporte próprio com múltiplas NF-e. Emissão, encerramento e cancelamento. Modal rodoviário.",
+      acao: "POST /api/fiscal/mdfe { acao: 'emitir|encerrar|cancelar' }",
+    },
+    {
+      icon: FileBarChart,
+      titulo: "CT-e (Conhecimento Transporte)",
+      descricao:
+        "Emissão própria + importação de CT-e recebido (gera conta a pagar do frete automaticamente).",
+      acao: "POST /api/fiscal/cte { acao: 'emitir|importar' }",
+    },
+    {
+      icon: Banknote,
+      titulo: "PGDAS-D — Simples Nacional",
+      descricao:
+        "Apuração mensal: faixa pela RBT12, alíquota efetiva, valor devido, repartição por tributo, geração DAS.",
+      acao: "GET /api/fiscal/pgdas?competencia=YYYY-MM",
+    },
+    {
+      icon: Download,
+      titulo: "SPED Contribuições (PIS/COFINS)",
+      descricao:
+        "Escrituração mensal das contribuições (regimes cumulativo e não-cumulativo).",
+      acao: "GET /api/contabil/sped-contribuicoes",
     },
   ];
 

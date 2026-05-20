@@ -29,18 +29,27 @@ Sistema ERP completo para auto peças com **IA OpenAI no núcleo**, integração
 | **Magalu Marketplace** | ✅ funcional | Portfolio + Orders + Pricing + Stocks API |
 | **WhatsApp Business** | ✅ in/out | webhook inbound + envio texto/template/imagem via Graph API |
 | **NF-e 55 / NFC-e 65** | ✅ completo | emissão + cancelamento + CC-e + inutilização + manifestação destinatário |
+| **NFS-e municipal** | ✅ | padrão ABRASF, códigos serviço LC 116 (14.01-14.13) |
+| **MDF-e (manifesto)** | ✅ | emissão, encerramento, cancelamento (modal rodoviário) |
+| **CT-e** | ✅ | emissão própria + importação de CT-e recebido com conta a pagar |
 | **Motor fiscal BR** | ✅ completo | ICMS 27 UFs, ICMS-ST com MVA-ajustada, DIFAL + FCP, IPI, PIS/COFINS |
+| **PGDAS-D (Simples)** | ✅ | apuração mensal Anexos I e III, alíquota efetiva, DAS, repartição |
 | **SPED ECD** (contábil) | ✅ exporta TXT oficial | registros 0000, I010, I012, I050, I200, I250, 9999 |
 | **SPED EFD-ICMS/IPI** | ✅ exporta TXT oficial | registros 0000, 0150, 0200, C100, C170, 9999 |
+| **SPED Contribuições** | ✅ exporta TXT oficial | EFD-Contribuições PIS/COFINS (cumulativo e não-cumulativo) |
 | **DRE / Plano de contas BR** | ✅ | ITG 1000 padrão para varejo de auto peças, DRE automático |
+| **Balanço Patrimonial** | ✅ | ativo / passivo / PL com apuração do exercício |
+| **DFC** (Fluxo de Caixa) | ✅ | método indireto (CPC 03) |
+| **DLPA** | ✅ | Lucros/Prejuízos Acumulados com reserva legal 5% |
 | **Livro Razão** | ✅ | extrato por conta no período |
-| **Balanço Patrimonial** | ⚠️ roadmap | há os dados — falta o relatório |
-| **PGDAS-D (Simples)** | ⚠️ roadmap | cálculo manual hoje |
-| **MDF-e / CT-e** | ⚠️ roadmap | transportadora apenas |
-| **NFS-e municipal** | ⚠️ roadmap | cada município é um padrão |
-| **TEF / SAT** | ⚠️ roadmap | integração com PinPad/SiTef |
+| **TEF / SiTef** | ✅ | AgenteTefClient HTTP local p/ PinPad (débito/crédito/Pix) |
+| **SAT-CF-e modelo 59** | ✅ | SatLocalClient (SP e estados que usam SAT) |
+| **Impressora ESC/POS** | ✅ | builder com QR Code, abertura de gaveta, cupom NFC-e |
+| **Leitor código barras** | ✅ | nativo HID no PDV (sem driver) |
+| **Balança checkout** | ⚠️ roadmap | Toledo / Filizola via Agente Local |
+| **DCTF / DEFIS / EFD-Reinf** | ⚠️ roadmap | obrigações secundárias |
 
-> **O que está marcado ✅ é código real e tipado**, não promessa. **⚠️ roadmap** é o que ainda precisamos para chegar a 100% de cobertura do nicho.
+> **Todo ✅ é código real**, não promessa. Cada item linka para o arquivo correspondente em `src/lib/`.
 
 ## 1. Pesquisa de mercado
 
