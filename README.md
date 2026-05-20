@@ -52,7 +52,11 @@ Sistema ERP completo para auto peças com **IA OpenAI no núcleo**, integração
 | **RMA / Devolução / Garantia** | ✅ | fluxo CDC: abrir → autorizar → receber → reembolso/troca/garantia |
 | **Comissionamento vendedores** | ✅ | % venda, % margem, escalonado, fixo; overrides por categoria/marca |
 | **PWA Mobile vendedor externo** | ✅ | `/m` com scanner câmera (BarcodeDetector), service worker offline |
-| **Balança checkout** | ⚠️ roadmap | Toledo / Filizola via Agente Local |
+| **App nativo iOS/Android (Capacitor)** | ✅ | `capacitor.config.ts` pronto, plugins camera/push/scanner/geolocation |
+| **Balança checkout** | ✅ | Toledo Prix III/6, Filizola Platina, Urano POP-S com parsers protocolares |
+| **Portal B2B (mecânicas/frotistas)** | ✅ | `/b2b` com login, catálogo c/ tabela de preço, garagem, pedidos, faturas |
+| **TecDoc XML (TAF) + sync automático** | ✅ | parser zero-dep + job mensal por empresa |
+| **Pix Automático recorrente (BACEN)** | ✅ | criar/pausar/retomar/cancelar assinatura, cobranças derivadas |
 
 > **Todo ✅ é código real**, não promessa. Cada item linka para o arquivo correspondente em `src/lib/`.
 

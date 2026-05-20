@@ -39,9 +39,9 @@ const dispositivos = [
     icon: Receipt,
     titulo: "Balança de checkout",
     descricao:
-      "Captura peso para produtos vendidos por kg (lubrificantes a granel, sucata). Protocolo Toledo / Filizola.",
-    detalhe: "Roadmap — extensão do AgenteLocal",
-    bandeiras: ["Toledo", "Filizola", "Urano"],
+      "Captura peso para produtos vendidos por kg (lubrificantes a granel, sucata). Protocolo Toledo Prix III, Filizola Platina, Urano POP-S.",
+    detalhe: "src/lib/pdv/balanca.ts — BalancaLocalClient + parsers protocolares",
+    bandeiras: ["Toledo Prix III", "Toledo Prix 6", "Filizola Platina", "Urano POP-S"],
   },
 ];
 
