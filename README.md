@@ -57,6 +57,12 @@ Sistema ERP completo para auto peças com **IA OpenAI no núcleo**, integração
 | **Portal B2B (mecânicas/frotistas)** | ✅ | `/b2b` com login, catálogo c/ tabela de preço, garagem, pedidos, faturas |
 | **TecDoc XML (TAF) + sync automático** | ✅ | parser zero-dep + job mensal por empresa |
 | **Pix Automático recorrente (BACEN)** | ✅ | criar/pausar/retomar/cancelar assinatura, cobranças derivadas |
+| **Workers BullMQ + Redis** | ✅ | sync ML/Shopee (15min), StockPredict (3h), MarginGuard (4h), TecDoc mensal |
+| **Auth (PBKDF2 + TOTP RFC 6238)** | ✅ | senha hash, 2FA Google Authenticator, sessões httpOnly, RBAC hierárquico |
+| **Ordem de Serviço (oficinas)** | ✅ | 10 status, peças + mão de obra, NFS-e do serviço, garantia técnica |
+| **Conciliação bancária OFX** | ✅ | parser OFX 2.x + matcher inteligente com baixa automática |
+| **Import XML NF-e (entrada)** | ✅ | parser nfeProc/NFe, match SKU/EAN, idempotente por chave |
+| **Push notifications** | ✅ | VAPID Web Push + APNs (iOS) + FCM (Android) com fallback automático |
 
 > **Todo ✅ é código real**, não promessa. Cada item linka para o arquivo correspondente em `src/lib/`.
 
