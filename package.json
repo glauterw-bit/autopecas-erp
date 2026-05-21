@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --turbo",
     "build": "prisma generate && next build",
-    "start": "prisma migrate deploy && next start -p ${PORT:-3000}",
+    "start": "tsx scripts/bootstrap.ts && next start -p ${PORT:-3000}",
     "postinstall": "prisma generate",
     "lint": "next lint",
     "db:generate": "prisma generate",
@@ -39,12 +39,14 @@
     "next": "^15.5.18",
     "next-auth": "^5.0.0-beta.25",
     "openai": "^4.104.0",
+    "prisma": "^5.22.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.53.2",
     "recharts": "^2.13.3",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
+    "tsx": "^4.19.2",
     "zod": "^3.23.8",
     "zustand": "^5.0.1"
   },
@@ -56,9 +58,7 @@
     "eslint": "^9.14.0",
     "eslint-config-next": "^15.5.18",
     "postcss": "^8.4.49",
-    "prisma": "^5.22.0",
     "tailwindcss": "^3.4.14",
-    "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }
 }
