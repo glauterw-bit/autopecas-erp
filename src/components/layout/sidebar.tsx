@@ -23,6 +23,7 @@ import {
   Percent,
   Globe,
   Smartphone,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +36,7 @@ const itens = [
   { href: "/fornecedores", label: "Fornecedores", icon: Truck },
   { href: "/compras", label: "Compras / NF-IA", icon: Scan },
   { href: "/financeiro", label: "Financeiro", icon: Wallet },
+  { href: "/os", label: "Ordem de Serviço", icon: Wrench },
   { href: "/comissoes", label: "Comissões", icon: Percent },
   { href: "/fiscal", label: "Fiscal NF-e", icon: FileText },
   { href: "/contabil", label: "Contábil / SPED", icon: BookOpen },

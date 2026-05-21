@@ -1557,6 +1557,113 @@ model ApuracaoComissao {
 }
 
 // =========================================================================
+// AUTH / SESSÕES / PUSH NOTIFICATIONS
+// =========================================================================
+
+model SessaoAuth {
+  id           String   @id @default(cuid())
+  usuarioId    String
+  token        String   @unique
+  ip           String?
+  userAgent    String?
+  expiraEm     DateTime
+  criadoEm     DateTime @default(now())
+
+  @@index([usuarioId, expiraEm])
+  @@map("sessoes_auth")
+}
+
+model PushSubscription {
+  id           String   @id @default(cuid())
+  usuarioId    String?
+  clienteId    String?
+  endpoint     String   @unique @db.Text
+  p256dh       String   @db.Text
+  authKey      String   @db.Text
+  userAgent    String?
+  plataforma   PushPlataforma @default(WEB)
+  ativa        Boolean  @default(true)
+  criadoEm     DateTime @default(now())
+
+  @@index([usuarioId])
+  @@index([clienteId])
+  @@map("push_subscriptions")
+}
+
+enum PushPlataforma {
+  WEB
+  IOS_APNS
+  ANDROID_FCM
+}
+
+// =========================================================================
+// ORDEM DE SERVIÇO (oficinas / instalação)
+// =========================================================================
+
+model OrdemServico {
+  id                  String   @id @default(cuid())
+  empresaId           String
+  numero              Int
+  status              StatusOS @default(ABERTA)
+  clienteId           String?
+  veiculoClienteId    String?
+  placa               String?
+  kmEntrada           Int?
+  kmSaida             Int?
+  abertaEm            DateTime @default(now())
+  prevConclusao       DateTime?
+  concluidaEm         DateTime?
+  entreguaEm          DateTime?
+  diagnostico         String?  @db.Text
+  servicoExecutado    String?  @db.Text
+  observacoes         String?  @db.Text
+  tecnicoId           String?
+  vendaPecasId        String?
+  notaServicoId       String?
+  valorPecas          Decimal  @default(0) @db.Decimal(14, 2)
+  valorServicos       Decimal  @default(0) @db.Decimal(14, 2)
+  valorDesconto       Decimal  @default(0) @db.Decimal(14, 2)
+  valorTotal          Decimal  @default(0) @db.Decimal(14, 2)
+  garantiaServicoDias Int      @default(90)
+  fotosAntes          String[] @default([])
+  fotosDepois         String[] @default([])
+  itensServico        ItemServicoOS[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, status])
+  @@index([placa])
+  @@map("ordens_servico")
+}
+
+enum StatusOS {
+  ABERTA
+  EM_ANALISE
+  AGUARDANDO_APROVACAO
+  APROVADA
+  EM_EXECUCAO
+  AGUARDANDO_PECA
+  CONCLUIDA
+  ENTREGUE
+  CANCELADA
+  GARANTIA
+}
+
+model ItemServicoOS {
+  id              String   @id @default(cuid())
+  ordemId         String
+  ordem           OrdemServico @relation(fields: [ordemId], references: [id], onDelete: Cascade)
+  codigoServico   String
+  descricao       String
+  quantidade      Decimal  @default(1) @db.Decimal(14, 3)
+  valorUnitario   Decimal  @db.Decimal(14, 2)
+  desconto        Decimal  @default(0) @db.Decimal(14, 2)
+  total           Decimal  @db.Decimal(14, 2)
+  duracaoMinutos  Int?
+
+  @@map("itens_servico_os")
+}
+
+// =========================================================================
 // AUDITORIA / LOG
 // =========================================================================
 

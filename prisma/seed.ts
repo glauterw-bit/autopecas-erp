@@ -1,6 +1,13 @@
+import crypto from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
+
+function hashSenhaSeed(senha: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.pbkdf2Sync(senha, salt, 100_000, 64, "sha512").toString("hex");
+  return `pbkdf2$100000$${salt}$${hash}`;
+}
 
 async function main() {
   console.log("→ Limpando dados anteriores...");
@@ -48,13 +55,13 @@ async function main() {
           {
             nome: "Admin Demo",
             email: "admin@autopecasdemo.com.br",
-            senhaHash: "$2a$10$placeholder",
+            senhaHash: hashSenhaSeed("admin123"),
             perfil: "ADMIN",
           },
           {
             nome: "Vendedor Demo",
             email: "vendedor@autopecasdemo.com.br",
-            senhaHash: "$2a$10$placeholder",
+            senhaHash: hashSenhaSeed("vendedor123"),
             perfil: "VENDEDOR",
           },
         ],
@@ -354,6 +361,20 @@ async function main() {
         pontualidade: 0.75,
       },
     ],
+  });
+
+  console.log("→ Regra de comissão padrão...");
+  await prisma.regraComissao.create({
+    data: {
+      empresaId: empresa.id,
+      nome: "Padrão — 3% sobre venda",
+      ativa: true,
+      tipoCalculo: "PERCENTUAL_VENDA",
+      percentualBase: 0.03,
+      metaMensal: 50000,
+      bonificacaoMeta: 1500,
+      abaterMargemBaixa: true,
+    },
   });
 
   console.log("→ Insights de IA de exemplo...");
