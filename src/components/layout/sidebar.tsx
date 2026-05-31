@@ -26,6 +26,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const itens = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -85,6 +86,9 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <div className="border-t p-2">
+        <ThemeToggle />
+      </div>
       <div className="border-t p-4 text-xs text-muted-foreground">
         <div className="font-semibold text-foreground">Loja Demo</div>
         <div>CNPJ 00.000.000/0001-00</div>

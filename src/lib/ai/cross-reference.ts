@@ -76,16 +76,28 @@ export async function buscarEquivalentes(
   }
 
   // 2. Candidatos por nome similar (pg_trgm) + mesma categoria
-  const candidatos = await prisma.$queryRaw<CandidatoCross[]>`
-    SELECT p.id, p.sku, p.nome, p.codigo_oem AS "codigoOem", p.codigo_fabricante AS "codigoFabricante",
-           m.nome AS marca
-      FROM produtos p
-      LEFT JOIN marcas m ON m.id = p.marca_id
-     WHERE p.empresa_id = ${empresaId}
-       AND p.ativo = TRUE
-       AND similarity(unaccent(lower(p.nome)), unaccent(lower(${alvo.nome}))) > 0.3
-     ORDER BY similarity(unaccent(lower(p.nome)), unaccent(lower(${alvo.nome}))) DESC
-     LIMIT 20`;
+  let candidatos: CandidatoCross[] = [];
+  try {
+    candidatos = await prisma.$queryRaw<CandidatoCross[]>`
+      SELECT p.id, p.sku, p.nome, p.codigo_oem AS "codigoOem", p.codigo_fabricante AS "codigoFabricante",
+             m.nome AS marca
+        FROM produtos p
+        LEFT JOIN marcas m ON m.id = p.marca_id
+       WHERE p.empresa_id = ${empresaId}
+         AND p.ativo = TRUE
+         AND similarity(unaccent(lower(p.nome)), unaccent(lower(${alvo.nome}))) > 0.3
+       ORDER BY similarity(unaccent(lower(p.nome)), unaccent(lower(${alvo.nome}))) DESC
+       LIMIT 20`;
+  } catch {
+    const like = `%${alvo.nome.replace(/\s+/g, "%")}%`;
+    candidatos = await prisma.$queryRaw<CandidatoCross[]>`
+      SELECT p.id, p.sku, p.nome, p.codigo_oem AS "codigoOem", p.codigo_fabricante AS "codigoFabricante",
+             m.nome AS marca
+        FROM produtos p
+        LEFT JOIN marcas m ON m.id = p.marca_id
+       WHERE p.empresa_id = ${empresaId} AND p.ativo = TRUE AND p.nome ILIKE ${like}
+       LIMIT 20`;
+  }
 
   if (candidatos.length === 0) return [];
 

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { BookOpen, Download, FileSpreadsheet, ScrollText, Scale, Wallet, TrendingUp } from "lucide-react";
 import { gerarDRE } from "@/lib/contabil/dre";
@@ -15,12 +16,33 @@ export default async function ContabilPage() {
   const empresaId = await empresaAtualId();
   const hoje = new Date();
   const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  const [dre, bp, dfc, dlpa] = await Promise.all([
+
+  // Degradação graciosa: se um relatório falhar (ex.: período sem dados),
+  // a página renderiza os demais em vez de retornar 500.
+  const [dreR, bpR, dfcR, dlpaR] = await Promise.allSettled([
     gerarDRE({ empresaId, inicio, fim: hoje }),
     gerarBalanco({ empresaId, dataReferencia: hoje }),
     gerarDFC({ empresaId, inicio, fim: hoje }),
     gerarDLPA({ empresaId, exercicio: hoje.getFullYear() }),
   ]);
+  const dre = dreR.status === "fulfilled" ? dreR.value : {
+    periodo: { inicio, fim: hoje }, itens: [], lucroLiquido: 0,
+    margemBrutaPercent: 0, margemLiquidaPercent: 0,
+  };
+  const bp = bpR.status === "fulfilled" ? bpR.value : {
+    dataReferencia: hoje,
+    ativo: { circulante: [], naoCirculante: [], total: 0 },
+    passivo: { circulante: [], naoCirculante: [], patrimonioLiquido: [], total: 0 },
+  };
+  const dfc = dfcR.status === "fulfilled" ? dfcR.value : {
+    periodo: { inicio, fim: hoje }, atividadesOperacionais: [],
+    atividadesInvestimento: [], atividadesFinanciamento: [],
+    variacaoCaixa: 0, saldoInicial: 0, saldoFinal: 0,
+  };
+  const dlpa = dlpaR.status === "fulfilled" ? dlpaR.value : {
+    exercicio: hoje.getFullYear(), saldoInicial: 0, lucroExercicio: 0,
+    reservaLegal: 0, dividendos: 0, saldoFinal: 0,
+  };
 
   return (
     <div className="space-y-6">
@@ -152,8 +174,8 @@ export default async function ContabilPage() {
                   { titulo: "Atividades de Investimento", linhas: dfc.atividadesInvestimento },
                   { titulo: "Atividades de Financiamento", linhas: dfc.atividadesFinanciamento },
                 ].map((bloco) => (
-                  <>
-                    <tr key={bloco.titulo} className="bg-secondary/60">
+                  <Fragment key={bloco.titulo}>
+                    <tr className="bg-secondary/60">
                       <td colSpan={2} className="px-4 py-2 font-semibold">{bloco.titulo}</td>
                     </tr>
                     {bloco.linhas.map((l) => (
@@ -162,7 +184,7 @@ export default async function ContabilPage() {
                         <td className={`px-4 py-1.5 text-right font-mono ${l.valor < 0 ? "text-red-600" : ""}`}>{formatBRL(l.valor)}</td>
                       </tr>
                     ))}
-                  </>
+                  </Fragment>
                 ))}
                 <tr className="border-b bg-secondary/40 font-semibold">
                   <td className="px-4 py-2">Variação de Caixa</td>
