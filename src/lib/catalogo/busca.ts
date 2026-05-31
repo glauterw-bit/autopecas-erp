@@ -90,16 +90,16 @@ export async function buscarProdutosPDV(opts: {
   try {
     sim = await prisma.$queryRaw<LinhaBusca[]>`
       SELECT p.id, p.sku, p.nome, m.nome AS marca,
-             p.preco_venda::float AS preco_venda,
-             p.preco_promocional::float AS preco_promocional,
-             p.foto_principal,
+             p."precoVenda"::float AS preco_venda,
+             p."precoPromocional"::float AS preco_promocional,
+             p."fotoPrincipal" AS foto_principal,
              COALESCE(SUM(e.quantidade - e.reservado), 0)::float AS estoque,
              similarity(unaccent(lower(p.nome || ' ' || COALESCE(m.nome,''))),
                         unaccent(lower(${termo}))) AS score
         FROM produtos p
-        LEFT JOIN marcas m ON m.id = p.marca_id
-        LEFT JOIN estoque_deposito e ON e.produto_id = p.id
-       WHERE p.empresa_id = ${opts.empresaId}
+        LEFT JOIN marcas m ON m.id = p."marcaId"
+        LEFT JOIN estoque_deposito e ON e."produtoId" = p.id
+       WHERE p."empresaId" = ${opts.empresaId}
          AND p.ativo = TRUE
          AND similarity(unaccent(lower(p.nome || ' ' || COALESCE(m.nome,''))),
                         unaccent(lower(${termo}))) > 0.2
@@ -111,15 +111,15 @@ export async function buscarProdutosPDV(opts: {
     const like = `%${termo.replace(/\s+/g, "%")}%`;
     sim = await prisma.$queryRaw<LinhaBusca[]>`
       SELECT p.id, p.sku, p.nome, m.nome AS marca,
-             p.preco_venda::float AS preco_venda,
-             p.preco_promocional::float AS preco_promocional,
-             p.foto_principal,
+             p."precoVenda"::float AS preco_venda,
+             p."precoPromocional"::float AS preco_promocional,
+             p."fotoPrincipal" AS foto_principal,
              COALESCE(SUM(e.quantidade - e.reservado), 0)::float AS estoque,
              0.5::float AS score
         FROM produtos p
-        LEFT JOIN marcas m ON m.id = p.marca_id
-        LEFT JOIN estoque_deposito e ON e.produto_id = p.id
-       WHERE p.empresa_id = ${opts.empresaId}
+        LEFT JOIN marcas m ON m.id = p."marcaId"
+        LEFT JOIN estoque_deposito e ON e."produtoId" = p.id
+       WHERE p."empresaId" = ${opts.empresaId}
          AND p.ativo = TRUE
          AND (p.nome ILIKE ${like} OR COALESCE(m.nome,'') ILIKE ${like})
        GROUP BY p.id, m.nome

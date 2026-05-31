@@ -39,10 +39,10 @@ export async function gerarBalanco(opts: {
     _sum: { valor: true, valorRecebido: true },
   });
   const estoqueValor = await prisma.$queryRaw<Array<{ total: number }>>`
-    SELECT COALESCE(SUM(e.quantidade * p.custo_medio), 0)::float AS total
+    SELECT COALESCE(SUM(e.quantidade * p."custoMedio"), 0)::float AS total
       FROM estoque_deposito e
-      JOIN produtos p ON p.id = e.produto_id
-     WHERE p.empresa_id = ${opts.empresaId}`;
+      JOIN produtos p ON p.id = e."produtoId"
+     WHERE p."empresaId" = ${opts.empresaId}`;
 
   const disponivel = Number(caixa._sum.saldoAtual ?? 0);
   const aReceber =

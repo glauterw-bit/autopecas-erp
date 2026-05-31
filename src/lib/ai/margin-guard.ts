@@ -67,16 +67,16 @@ export async function gerarInsightsMargemEmpresa(empresaId: string, dias = 30) {
   >`
     SELECT p.id AS produto_id, p.sku, p.nome,
            COUNT(*)::int AS vendas,
-           AVG((iv.preco_unitario - iv.custo_unitario) / NULLIF(iv.preco_unitario,0))::float AS margem_media
+           AVG((iv."precoUnitario" - iv."custoUnitario") / NULLIF(iv."precoUnitario",0))::float AS margem_media
       FROM itens_venda iv
-      JOIN vendas v ON v.id = iv.venda_id
-      JOIN produtos p ON p.id = iv.produto_id
-     WHERE v.empresa_id = ${empresaId}
-       AND v.criada_em >= ${desde}
+      JOIN vendas v ON v.id = iv."vendaId"
+      JOIN produtos p ON p.id = iv."produtoId"
+     WHERE v."empresaId" = ${empresaId}
+       AND v."criadaEm" >= ${desde}
        AND v.status NOT IN ('CANCELADA')
      GROUP BY p.id, p.sku, p.nome
      HAVING COUNT(*) >= 3
-        AND AVG((iv.preco_unitario - iv.custo_unitario) / NULLIF(iv.preco_unitario,0)) < 0.10
+        AND AVG((iv."precoUnitario" - iv."custoUnitario") / NULLIF(iv."precoUnitario",0)) < 0.10
      ORDER BY margem_media ASC
      LIMIT 50`;
 

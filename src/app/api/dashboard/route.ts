@@ -51,19 +51,19 @@ export async function GET() {
     prisma.$queryRaw<Array<{ nome: string; qtd: number; valor: number }>>`
       SELECT p.nome, SUM(iv.quantidade)::float AS qtd, SUM(iv.total)::float AS valor
         FROM itens_venda iv
-        JOIN vendas v ON v.id = iv.venda_id
-        JOIN produtos p ON p.id = iv.produto_id
-       WHERE v.empresa_id = ${empresaId}
-         AND v.criada_em >= ${inicioMes}
+        JOIN vendas v ON v.id = iv."vendaId"
+        JOIN produtos p ON p.id = iv."produtoId"
+       WHERE v."empresaId" = ${empresaId}
+         AND v."criadaEm" >= ${inicioMes}
          AND v.status NOT IN ('CANCELADA')
        GROUP BY p.id, p.nome
        ORDER BY valor DESC
        LIMIT 10`,
     prisma.$queryRaw<Array<{ dia: Date; total: number }>>`
-      SELECT DATE_TRUNC('day', criada_em) AS dia, SUM(valor_total)::float AS total
+      SELECT DATE_TRUNC('day', "criadaEm") AS dia, SUM("valorTotal")::float AS total
         FROM vendas
-       WHERE empresa_id = ${empresaId}
-         AND criada_em >= ${inicioMes}
+       WHERE "empresaId" = ${empresaId}
+         AND "criadaEm" >= ${inicioMes}
          AND status NOT IN ('CANCELADA')
        GROUP BY 1
        ORDER BY 1`,

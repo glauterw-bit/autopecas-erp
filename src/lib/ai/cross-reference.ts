@@ -79,11 +79,11 @@ export async function buscarEquivalentes(
   let candidatos: CandidatoCross[] = [];
   try {
     candidatos = await prisma.$queryRaw<CandidatoCross[]>`
-      SELECT p.id, p.sku, p.nome, p.codigo_oem AS "codigoOem", p.codigo_fabricante AS "codigoFabricante",
+      SELECT p.id, p.sku, p.nome, p."codigoOem" AS "codigoOem", p."codigoFabricante" AS "codigoFabricante",
              m.nome AS marca
         FROM produtos p
-        LEFT JOIN marcas m ON m.id = p.marca_id
-       WHERE p.empresa_id = ${empresaId}
+        LEFT JOIN marcas m ON m.id = p."marcaId"
+       WHERE p."empresaId" = ${empresaId}
          AND p.ativo = TRUE
          AND similarity(unaccent(lower(p.nome)), unaccent(lower(${alvo.nome}))) > 0.3
        ORDER BY similarity(unaccent(lower(p.nome)), unaccent(lower(${alvo.nome}))) DESC
@@ -91,11 +91,11 @@ export async function buscarEquivalentes(
   } catch {
     const like = `%${alvo.nome.replace(/\s+/g, "%")}%`;
     candidatos = await prisma.$queryRaw<CandidatoCross[]>`
-      SELECT p.id, p.sku, p.nome, p.codigo_oem AS "codigoOem", p.codigo_fabricante AS "codigoFabricante",
+      SELECT p.id, p.sku, p.nome, p."codigoOem" AS "codigoOem", p."codigoFabricante" AS "codigoFabricante",
              m.nome AS marca
         FROM produtos p
-        LEFT JOIN marcas m ON m.id = p.marca_id
-       WHERE p.empresa_id = ${empresaId} AND p.ativo = TRUE AND p.nome ILIKE ${like}
+        LEFT JOIN marcas m ON m.id = p."marcaId"
+       WHERE p."empresaId" = ${empresaId} AND p.ativo = TRUE AND p.nome ILIKE ${like}
        LIMIT 20`;
   }
 

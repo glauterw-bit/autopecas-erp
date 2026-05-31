@@ -36,7 +36,7 @@ async function main() {
   // Índices GIN trigram para acelerar a busca por nome (idempotente).
   const indices = [
     `CREATE INDEX IF NOT EXISTS idx_produtos_nome_trgm ON produtos USING gin (lower(nome) gin_trgm_ops)`,
-    `CREATE INDEX IF NOT EXISTS idx_produtos_empresa_ativo ON produtos (empresa_id, ativo)`,
+    `CREATE INDEX IF NOT EXISTS idx_produtos_empresa_ativo ON produtos ("empresaId", ativo)`,
   ];
   for (const sql of indices) {
     try { await prisma.$executeRawUnsafe(sql); } catch { /* índice opcional */ }
@@ -70,7 +70,7 @@ async function main() {
       `UPDATE produtos SET localizacao = 'Prt ' || chr(65 + (abs(hashtext(id)) % 6)) || (1 + abs(hashtext(sku)) % 20) WHERE localizacao IS NULL OR localizacao = ''`,
     );
     await prisma.$executeRawUnsafe(
-      `UPDATE produtos SET preco_minimo = ROUND(custo_medio * 1.15, 2) WHERE preco_minimo IS NULL AND custo_medio > 0`,
+      `UPDATE produtos SET "precoMinimo" = ROUND("custoMedio" * 1.15, 2) WHERE "precoMinimo" IS NULL AND "custoMedio" > 0`,
     );
     console.log("[bootstrap]   ✓ polimento demo aplicado");
   } catch (e) {

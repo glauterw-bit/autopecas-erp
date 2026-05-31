@@ -42,10 +42,10 @@ export async function gerarDRE(opts: {
   const receitaBruta = await prisma.$queryRaw<
     Array<{ origem: string; total: number }>
   >`
-    SELECT origem, SUM(valor_total)::float AS total
+    SELECT origem, SUM("valorTotal")::float AS total
       FROM vendas
-     WHERE empresa_id = ${empresaId}
-       AND criada_em BETWEEN ${inicio} AND ${fim}
+     WHERE "empresaId" = ${empresaId}
+       AND "criadaEm" BETWEEN ${inicio} AND ${fim}
        AND status NOT IN ('CANCELADA')
      GROUP BY origem`;
 

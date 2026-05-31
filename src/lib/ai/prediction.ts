@@ -28,11 +28,11 @@ async function historicoVendas(produtoId: string, dias: number) {
   const desde = new Date();
   desde.setDate(desde.getDate() - dias);
   return prisma.$queryRaw<Array<{ dia: Date; qtd: number }>>`
-    SELECT DATE_TRUNC('day', v.criada_em) AS dia, SUM(iv.quantidade)::float AS qtd
+    SELECT DATE_TRUNC('day', v."criadaEm") AS dia, SUM(iv.quantidade)::float AS qtd
       FROM itens_venda iv
-      JOIN vendas v ON v.id = iv.venda_id
-     WHERE iv.produto_id = ${produtoId}
-       AND v.criada_em >= ${desde}
+      JOIN vendas v ON v.id = iv."vendaId"
+     WHERE iv."produtoId" = ${produtoId}
+       AND v."criadaEm" >= ${desde}
        AND v.status NOT IN ('CANCELADA')
      GROUP BY 1
      ORDER BY 1`;

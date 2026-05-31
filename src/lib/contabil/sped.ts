@@ -181,11 +181,11 @@ export async function gerarSpedEFD(opts: {
   const participantes = await prisma.$queryRaw<
     Array<{ id: string; nome: string; cpfCnpj: string | null; uf: string | null }>
   >`
-    SELECT DISTINCT c.id, c.nome, c.cpf_cnpj AS "cpfCnpj", c.uf
+    SELECT DISTINCT c.id, c.nome, c."cpfCnpj" AS "cpfCnpj", c.uf
       FROM clientes c
-      JOIN notas_fiscais nf ON nf.cliente_id = c.id
-     WHERE nf.empresa_id = ${opts.empresaId}
-       AND nf.data_emissao BETWEEN ${opts.inicio} AND ${opts.fim}`;
+      JOIN notas_fiscais nf ON nf."clienteId" = c.id
+     WHERE nf."empresaId" = ${opts.empresaId}
+       AND nf."dataEmissao" BETWEEN ${opts.inicio} AND ${opts.fim}`;
   for (const p of participantes) {
     if (!p.cpfCnpj) continue;
     linhas.push(
