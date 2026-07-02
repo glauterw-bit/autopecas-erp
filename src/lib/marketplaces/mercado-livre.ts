@@ -20,6 +20,32 @@ import type {
 
 const BASE = "https://api.mercadolibre.com";
 
+// Cap de segurança para loops de paginação (evita varrer contas gigantes
+// numa única chamada de sync).
+const MAX_PAGINAS = 20;
+
+// Retry para rate limit / indisponibilidade: em 429 ou 503 lê Retry-After
+// (segundos, máx 30s de espera) e tenta de novo — máx 3 tentativas.
+// Duplicado em cada adaptador de propósito (arquivos têm donos diferentes).
+async function comRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let tentativa = 0;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (e) {
+      tentativa++;
+      const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+      if ((status !== 429 && status !== 503) || tentativa >= 3) throw e;
+      const retryAfter = Number(
+        axios.isAxiosError(e) ? e.response?.headers?.["retry-after"] : NaN,
+      );
+      const segundos =
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1;
+      await new Promise((r) => setTimeout(r, Math.min(segundos, 30) * 1000));
+    }
+  }
+}
+
 export class MercadoLivreAdapter implements AdaptadorMarketplace {
   plataforma = "MERCADO_LIVRE";
   constructor(private readonly contaId: string) {}
@@ -69,19 +95,35 @@ export class MercadoLivreAdapter implements AdaptadorMarketplace {
     });
     const sellerId = conta.contaExternaId;
     if (!sellerId) return [];
-    const { data: ids } = await http.get(`/users/${sellerId}/items/search`, {
-      params: { limit: 50 },
-    });
-    const itemIds: string[] = ids.results ?? [];
+    // Paginação por offset até esgotar paging.total (cap MAX_PAGINAS).
+    const limit = 50;
+    let offset = 0;
+    const itemIds: string[] = [];
+    for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+      const { data: ids } = await comRetry(() =>
+        http.get(`/users/${sellerId}/items/search`, {
+          params: { limit, offset },
+        }),
+      );
+      const results: string[] = ids.results ?? [];
+      itemIds.push(...results);
+      const total: number = ids.paging?.total ?? itemIds.length;
+      offset += limit;
+      if (results.length === 0 || offset >= total) break;
+    }
     if (itemIds.length === 0) return [];
-    const { data: items } = await http.get<Array<{ body: AnuncioMLRaw }>>(
-      `/items`,
-      { params: { ids: itemIds.join(","), attributes: "id,title,price,available_quantity,status,permalink,listing_type_id" } },
-    );
-    return items
-      .map((it) => it.body)
-      .filter(Boolean)
-      .map((b) => ({
+    // Multiget de /items aceita no máx. 20 ids por chamada.
+    const bodies: AnuncioMLRaw[] = [];
+    for (let i = 0; i < itemIds.length; i += 20) {
+      const lote = itemIds.slice(i, i + 20);
+      const { data: items } = await comRetry(() =>
+        http.get<Array<{ body: AnuncioMLRaw }>>(`/items`, {
+          params: { ids: lote.join(","), attributes: "id,title,price,available_quantity,status,permalink,listing_type_id" },
+        }),
+      );
+      bodies.push(...items.map((it) => it.body).filter(Boolean));
+    }
+    return bodies.map((b) => ({
         itemIdExterno: b.id,
         titulo: b.title,
         preco: b.price,
@@ -115,11 +157,28 @@ export class MercadoLivreAdapter implements AdaptadorMarketplace {
     const sellerId = conta.contaExternaId;
     if (!sellerId) return [];
     const desde = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const { data } = await http.get(`/orders/search`, {
-      params: { seller: sellerId, "order.date_created.from": desde, limit: 50 },
-    });
-    type Res = { results: PedidoMLRaw[] };
-    const results: PedidoMLRaw[] = (data as Res).results ?? [];
+    type Res = { results: PedidoMLRaw[]; paging?: { total?: number } };
+    // Paginação por offset até esgotar paging.total (cap MAX_PAGINAS).
+    const limit = 50;
+    let offset = 0;
+    const results: PedidoMLRaw[] = [];
+    for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+      const { data } = await comRetry(() =>
+        http.get(`/orders/search`, {
+          params: {
+            seller: sellerId,
+            "order.date_created.from": desde,
+            limit,
+            offset,
+          },
+        }),
+      );
+      const pageResults = (data as Res).results ?? [];
+      results.push(...pageResults);
+      const total = (data as Res).paging?.total ?? results.length;
+      offset += limit;
+      if (pageResults.length === 0 || offset >= total) break;
+    }
     return results.map((o) => ({
       pedidoIdExterno: String(o.id),
       status: o.status,
@@ -152,8 +211,8 @@ export class MercadoLivreAdapter implements AdaptadorMarketplace {
     });
     const sellerId = conta.contaExternaId;
     if (!sellerId) return [];
-    const { data } = await http.get(
-      `/messages/packs/seller/${sellerId}?tag=post_sale`,
+    const { data } = await comRetry(() =>
+      http.get(`/messages/packs/seller/${sellerId}?tag=post_sale`),
     );
     type Msg = { id: string; from: { user_id: string }; text: string; message_date: { received: string } };
     const msgs: Msg[] = data?.messages ?? [];

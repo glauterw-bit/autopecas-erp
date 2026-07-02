@@ -27,6 +27,7 @@ const FORMAS: { id: FormaPagamento; label: string; icon: typeof Banknote; tecla:
 
 export function PaymentModal(props: {
   total: number;
+  erro?: string | null;
   onCancel: () => void;
   onConfirm: (pagamentos: LinhaPagamento[]) => Promise<void>;
 }) {
@@ -76,6 +77,8 @@ export function PaymentModal(props: {
         setProcessando(true);
         try {
           await props.onConfirm(lista);
+        } catch {
+          // erro exibido pelo PDV via prop `erro` (ex.: 422 de desconto/limite)
         } finally {
           setProcessando(false);
         }
@@ -86,6 +89,8 @@ export function PaymentModal(props: {
     setProcessando(true);
     try {
       await props.onConfirm(pagamentos);
+    } catch {
+      // erro exibido pelo PDV via prop `erro` (ex.: 422 de desconto/limite)
     } finally {
       setProcessando(false);
     }
@@ -230,6 +235,11 @@ export function PaymentModal(props: {
                 </span>
               </div>
             </div>
+            {props.erro && (
+              <div className="mb-2 rounded-md bg-destructive/10 p-2 text-xs font-medium text-destructive">
+                {props.erro}
+              </div>
+            )}
             <button
               onClick={confirmar}
               disabled={processando}

@@ -148,7 +148,7 @@ export async function gerarSpedECD(opts: {
     );
   }
 
-  // Lançamentos do período (base para I155 e I200/I250)
+  // Movimentos do período (base para I155 e fallback do I200/I250)
   const movimentos = await prisma.movimentoCaixa.findMany({
     where: {
       empresaId: opts.empresaId,
@@ -185,21 +185,57 @@ export async function gerarSpedECD(opts: {
     );
   }
 
-  // I200/I250: Lançamentos contábeis - cada movimento gera um lote.
+  // I200/I250: Lançamentos contábeis.
+  // Fonte preferencial: LancamentoContabil (partidas dobradas) — um I200 por
+  // lançamento e um I250 por partida, com o código da conta do plano.
+  // Fallback: MovimentoCaixa (comportamento anterior) quando a empresa ainda
+  // não tem lançamentos no período.
+  const lancamentos = await prisma.lancamentoContabil.findMany({
+    where: {
+      empresaId: opts.empresaId,
+      data: { gte: opts.inicio, lte: opts.fim },
+    },
+    include: { partidas: { include: { planoConta: true } } },
+    orderBy: { data: "asc" },
+  });
+
   let lote = 0;
-  for (const m of movimentos) {
-    lote++;
-    blocoI.push(pipe("I200", String(lote).padStart(6, "0"), dataSped(m.data), valorSped(Number(m.valor)), "N"));
-    blocoI.push(
-      pipe(
-        "I250",
-        m.planoConta?.codigo ?? "1.1.01.001",
-        "",
-        valorSped(Number(m.valor)),
-        m.tipo === "ENTRADA" ? "C" : "D",
-        m.descricao.slice(0, 700),
-      ),
-    );
+  if (lancamentos.length > 0) {
+    for (const l of lancamentos) {
+      lote++;
+      // VL_LCTO = soma dos débitos (== soma dos créditos, partida balanceada)
+      const valorLote = l.partidas
+        .filter((p) => p.natureza === "DEBITO")
+        .reduce((a, p) => a + Number(p.valor), 0);
+      blocoI.push(pipe("I200", String(lote).padStart(6, "0"), dataSped(l.data), valorSped(valorLote), "N"));
+      for (const p of l.partidas) {
+        blocoI.push(
+          pipe(
+            "I250",
+            p.planoConta.codigo,
+            "", // centro de custo
+            valorSped(Number(p.valor)),
+            p.natureza === "CREDITO" ? "C" : "D",
+            l.historico.slice(0, 700),
+          ),
+        );
+      }
+    }
+  } else {
+    for (const m of movimentos) {
+      lote++;
+      blocoI.push(pipe("I200", String(lote).padStart(6, "0"), dataSped(m.data), valorSped(Number(m.valor)), "N"));
+      blocoI.push(
+        pipe(
+          "I250",
+          m.planoConta?.codigo ?? "1.1.01.001",
+          "",
+          valorSped(Number(m.valor)),
+          m.tipo === "ENTRADA" ? "C" : "D",
+          m.descricao.slice(0, 700),
+        ),
+      );
+    }
   }
   fecharBloco(blocoI, "I990");
 

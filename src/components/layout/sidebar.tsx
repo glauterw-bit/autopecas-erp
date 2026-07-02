@@ -24,6 +24,8 @@ import {
   Globe,
   Smartphone,
   Wrench,
+  Banknote,
+  Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -31,7 +33,9 @@ import { ThemeToggle } from "@/components/theme-toggle";
 const itens = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/pdv", label: "Frente de Caixa", icon: ShoppingCart, accent: true },
+  { href: "/caixa", label: "Gestão de Caixa", icon: Banknote },
   { href: "/produtos", label: "Produtos", icon: Package },
+  { href: "/estoque", label: "Estoque", icon: Boxes },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/veiculos", label: "Veículos", icon: Car },
   { href: "/fornecedores", label: "Fornecedores", icon: Truck },

@@ -1,4 +1,5 @@
-import { FileScan, Upload } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, FileScan, PackageSearch, Upload } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -11,6 +12,25 @@ export default function ComprasPage() {
           Pedidos a fornecedores, recebimento e NF de entrada via OCR inteligente.
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <PackageSearch className="h-5 w-5 text-accent" /> Sugestão de compra & vendas perdidas
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            Reposição por ponto de pedido e demanda perdida, agrupada por
+            fornecedor — gere pedidos em rascunho com um clique.
+          </p>
+          <Button asChild variant="outline">
+            <Link href="/compras/sugestao">
+              Abrir sugestão <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

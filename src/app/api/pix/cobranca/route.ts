@@ -22,6 +22,25 @@ export const POST = comAuth("CAIXA", async (req, _ctx, usuario) => {
   const chave = (empresa.configuracoes as { pixChave?: string } | null)?.pixChave ?? empresa.cnpj;
   const txid = gerarTxid();
 
+  // Persiste o txid na venda/conta a receber — é por ele que o webhook
+  // /api/webhooks/pix dá baixa automática quando o PSP confirma o pagamento.
+  if (body.vendaId) {
+    const venda = await prisma.venda.findFirst({
+      where: { id: body.vendaId, empresaId },
+      select: { id: true },
+    });
+    if (venda) {
+      await prisma.pagamentoVenda.updateMany({
+        where: { vendaId: venda.id, formaPagamento: "PIX", nsuAutorizacao: null },
+        data: { nsuAutorizacao: txid },
+      });
+      await prisma.contaReceber.updateMany({
+        where: { vendaId: venda.id, empresaId, documento: null },
+        data: { documento: txid },
+      });
+    }
+  }
+
   if (body.usarPspDinamico) {
     if (
       !process.env.PSP_PIX_BASE_URL ||

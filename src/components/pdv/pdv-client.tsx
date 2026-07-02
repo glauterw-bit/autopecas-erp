@@ -1,13 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Camera, Car, CheckCircle2, MapPin, Minus, Plus, Search, ShieldCheck, Trash2, User, X } from "lucide-react";
+import { AlertCircle, Camera, Car, CheckCircle2, MapPin, Minus, PackageX, Plus, Search, ShieldCheck, Trash2, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatBRL } from "@/lib/utils";
 import { PaymentModal, type LinhaPagamento } from "./payment-modal";
+import { VendaPerdidaModal } from "./venda-perdida-modal";
+
+type TipoVendaPdv = "VENDA" | "ORCAMENTO" | "CONDICIONAL";
+
+const TIPOS_VENDA: Array<{ valor: TipoVendaPdv; label: string }> = [
+  { valor: "VENDA", label: "Venda" },
+  { valor: "ORCAMENTO", label: "Orçamento" },
+  { valor: "CONDICIONAL", label: "Condicional" },
+];
 
 interface Produto {
   id: string;
@@ -65,9 +74,18 @@ export function PdvClient() {
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [mostrarPagamento, setMostrarPagamento] = useState(false);
-  const [sucesso, setSucesso] = useState<{ numero: number } | null>(null);
+  const [sucesso, setSucesso] = useState<{ numero: number; tipo: TipoVendaPdv; dias?: number } | null>(null);
   const [selecionado, setSelecionado] = useState(0);
+  const [tipoVenda, setTipoVenda] = useState<TipoVendaPdv>("VENDA");
+  const [diasRetorno, setDiasRetorno] = useState(7);
+  const [vendaPerdida, setVendaPerdida] = useState<{ descricao: string; produtoId?: string | null } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; tipo: "ok" | "erro" } | null>(null);
   const buscaRef = useRef<HTMLInputElement>(null);
+
+  const notificar = useCallback((msg: string, tipo: "ok" | "erro") => {
+    setToast({ msg, tipo });
+    setTimeout(() => setToast(null), 4000);
+  }, []);
 
   useEffect(() => {
     buscaRef.current?.focus();
@@ -174,11 +192,80 @@ export function PdvClient() {
   const editarPreco = (i: number, novo: number) =>
     setCarrinho((cs) => cs.map((c, idx) => (idx === i ? { ...c, precoUnitario: novo } : c)));
 
+  const finalizar = useCallback(
+    async (pagamentos: LinhaPagamento[]) => {
+      setErro(null);
+      try {
+        const r = await fetch("/api/vendas", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            tipo: tipoVenda,
+            origem: "PDV",
+            clienteId: cliente?.id ?? null,
+            veiculoPlaca: placa || null,
+            descontoGeral,
+            ...(tipoVenda === "CONDICIONAL" ? { diasRetorno } : {}),
+            itens: carrinho.map((c) => ({
+              produtoId: c.produtoId,
+              quantidade: c.quantidade,
+              precoUnitario: c.precoUnitario,
+              desconto: c.desconto,
+            })),
+            pagamentos: pagamentos.map((p) => ({
+              formaPagamento: p.forma,
+              valor: p.valor,
+              parcelas: p.parcelas,
+            })),
+          }),
+        });
+        if (!r.ok) {
+          const j = (await r.json().catch(() => ({}))) as { erro?: string };
+          throw new Error(j.erro ?? "Falha ao registrar venda");
+        }
+        const venda = (await r.json()) as {
+          numero: number;
+          promocoesAplicadas?: Array<{ promocaoNome: string; precoPromocional: number }>;
+        };
+        if (venda.promocoesAplicadas?.length) {
+          notificar(
+            `${venda.promocoesAplicadas.length} item(ns) com preço promocional aplicado automaticamente.`,
+            "ok",
+          );
+        }
+        setMostrarPagamento(false);
+        setSucesso({ numero: venda.numero, tipo: tipoVenda, dias: diasRetorno });
+        setCarrinho([]);
+        setDescontoGeral(0);
+        setVeiculoDescricao(null);
+        setPlaca("");
+        setCliente(null);
+        setTipoVenda("VENDA");
+        setDiasRetorno(7);
+      } catch (e) {
+        setErro((e as Error).message);
+        throw e;
+      }
+    },
+    [tipoVenda, cliente, placa, descontoGeral, diasRetorno, carrinho, notificar],
+  );
+
+  // Orçamento e condicional não passam pelo modal de pagamento.
+  const fecharSemPagamento = useCallback(() => {
+    finalizar([]).catch(() => undefined); // erro já exibido via setErro
+  }, [finalizar]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (mostrarPagamento) return;
       if (sucesso) { if (e.key === "Enter") setSucesso(null); return; }
-      if (e.key === "F9") { e.preventDefault(); if (carrinho.length) setMostrarPagamento(true); }
+      if (e.key === "F9") {
+        e.preventDefault();
+        if (carrinho.length) {
+          if (tipoVenda === "VENDA") setMostrarPagamento(true);
+          else fecharSemPagamento();
+        }
+      }
       else if (e.key === "F2") { e.preventDefault(); buscarCliente(); }
       else if (e.key === "F3") { e.preventDefault(); const p = prompt("Placa do veículo:"); if (p) consultarPlaca(p); }
       else if (e.key === "F6") { e.preventDefault(); const d = prompt("Desconto geral (R$):"); if (d) setDescontoGeral(Number(d.replace(",", ".")) || 0); }
@@ -189,50 +276,7 @@ export function PdvClient() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [carrinho, resultados, selecionado, termo, mostrarPagamento, sucesso, adicionar, buscarCliente, consultarPlaca]);
-
-  async function finalizar(pagamentos: LinhaPagamento[]) {
-    setErro(null);
-    try {
-      const r = await fetch("/api/vendas", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          tipo: "VENDA",
-          origem: "PDV",
-          clienteId: cliente?.id ?? null,
-          veiculoPlaca: placa || null,
-          descontoGeral,
-          itens: carrinho.map((c) => ({
-            produtoId: c.produtoId,
-            quantidade: c.quantidade,
-            precoUnitario: c.precoUnitario,
-            desconto: c.desconto,
-          })),
-          pagamentos: pagamentos.map((p) => ({
-            formaPagamento: p.forma,
-            valor: p.valor,
-            parcelas: p.parcelas,
-          })),
-        }),
-      });
-      if (!r.ok) {
-        const j = (await r.json().catch(() => ({}))) as { erro?: string };
-        throw new Error(j.erro ?? "Falha ao registrar venda");
-      }
-      const venda = (await r.json()) as { numero: number };
-      setMostrarPagamento(false);
-      setSucesso({ numero: venda.numero });
-      setCarrinho([]);
-      setDescontoGeral(0);
-      setVeiculoDescricao(null);
-      setPlaca("");
-      setCliente(null);
-    } catch (e) {
-      setErro((e as Error).message);
-      throw e;
-    }
-  }
+  }, [carrinho, resultados, selecionado, termo, mostrarPagamento, sucesso, adicionar, buscarCliente, consultarPlaca, tipoVenda, fecharSemPagamento]);
 
   return (
     <div className="grid h-[calc(100vh-3rem)] grid-cols-[1fr_420px] gap-4">
@@ -277,7 +321,15 @@ export function PdvClient() {
             {buscando && <div className="p-6 text-center text-sm text-muted-foreground">Buscando…</div>}
             {!buscando && resultados.length === 0 && termo && (
               <div className="p-6 text-center text-sm text-muted-foreground">
-                Nada para &quot;{termo}&quot;. Tente o código OEM ou o nome da peça.
+                <p>Nada para &quot;{termo}&quot;. Tente o código OEM ou o nome da peça.</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => setVendaPerdida({ descricao: termo })}
+                >
+                  <PackageX className="h-3 w-3" /> Registrar venda perdida
+                </Button>
               </div>
             )}
             {!buscando && resultados.length === 0 && !termo && (
@@ -307,6 +359,19 @@ export function PdvClient() {
                       <span className={p.estoque > 0 ? "" : "text-red-500"}>
                         {p.estoque > 0 ? `${p.estoque} ${p.unidade}` : "sem estoque"}
                       </span>
+                      {p.estoque <= 0 && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setVendaPerdida({ descricao: `${p.nome} (SKU ${p.sku})`, produtoId: p.id });
+                          }}
+                          className="rounded border border-amber-400/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 hover:bg-amber-500/10"
+                        >
+                          Registrar venda perdida
+                        </span>
+                      )}
                       {p.localizacao && (
                         <span className="flex items-center gap-0.5 text-accent">
                           <MapPin className="h-3 w-3" /> {p.localizacao}
@@ -417,6 +482,32 @@ export function PdvClient() {
                 {formatBRL(margemTotal)} ({margemPct.toFixed(0)}%)
               </span>
             </div>
+            <div className="grid grid-cols-3 gap-1 rounded-md border p-1 text-xs">
+              {TIPOS_VENDA.map((t) => (
+                <button
+                  key={t.valor}
+                  onClick={() => setTipoVenda(t.valor)}
+                  className={`rounded px-1 py-1.5 font-medium transition-colors ${
+                    tipoVenda === t.valor ? "bg-accent text-white" : "text-muted-foreground hover:bg-secondary"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {tipoVenda === "CONDICIONAL" && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Retorno em (dias)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={diasRetorno}
+                  onChange={(e) => setDiasRetorno(Math.max(1, Math.min(365, Number(e.target.value) || 7)))}
+                  className="h-8 w-16 rounded-md border bg-background px-2 text-right font-mono"
+                />
+              </div>
+            )}
             {erro && (
               <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
                 <AlertCircle className="mt-0.5 h-3 w-3" /> {erro}
@@ -425,25 +516,56 @@ export function PdvClient() {
             <Button
               variant="accent"
               className="h-14 w-full text-lg"
-              onClick={() => setMostrarPagamento(true)}
+              onClick={() => (tipoVenda === "VENDA" ? setMostrarPagamento(true) : fecharSemPagamento())}
               disabled={carrinho.length === 0}
             >
-              Pagar (F9) · {formatBRL(total)}
+              {tipoVenda === "VENDA" && <>Pagar (F9) · {formatBRL(total)}</>}
+              {tipoVenda === "ORCAMENTO" && <>Salvar orçamento (F9) · {formatBRL(total)}</>}
+              {tipoVenda === "CONDICIONAL" && <>Condicional (F9) · {formatBRL(total)}</>}
             </Button>
           </CardContent>
         </Card>
       </div>
 
       {mostrarPagamento && (
-        <PaymentModal total={total} onCancel={() => setMostrarPagamento(false)} onConfirm={finalizar} />
+        <PaymentModal total={total} erro={erro} onCancel={() => setMostrarPagamento(false)} onConfirm={finalizar} />
+      )}
+
+      {vendaPerdida && (
+        <VendaPerdidaModal
+          descricaoInicial={vendaPerdida.descricao}
+          produtoId={vendaPerdida.produtoId}
+          motivoInicial={vendaPerdida.produtoId ? "SEM_ESTOQUE" : "NAO_TRABALHAMOS"}
+          onClose={() => setVendaPerdida(null)}
+          onResultado={notificar}
+        />
+      )}
+
+      {toast && (
+        <div
+          className={`fixed bottom-4 left-1/2 z-[60] -translate-x-1/2 rounded-lg px-4 py-2.5 text-sm font-medium shadow-lg ${
+            toast.tipo === "ok" ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
+          }`}
+        >
+          {toast.msg}
+        </div>
       )}
 
       {sucesso && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setSucesso(null)}>
           <div className="w-full max-w-sm rounded-2xl border bg-card p-8 text-center shadow-xl">
             <CheckCircle2 className="mx-auto mb-3 h-14 w-14 text-emerald-500" />
-            <h2 className="text-xl font-bold">Venda #{sucesso.numero} concluída!</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Estoque baixado e venda registrada.</p>
+            <h2 className="text-xl font-bold">
+              {sucesso.tipo === "VENDA" && <>Venda #{sucesso.numero} concluída!</>}
+              {sucesso.tipo === "ORCAMENTO" && <>Orçamento #{sucesso.numero} salvo!</>}
+              {sucesso.tipo === "CONDICIONAL" && <>Condicional #{sucesso.numero} registrada!</>}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {sucesso.tipo === "VENDA" && "Estoque baixado e venda registrada."}
+              {sucesso.tipo === "ORCAMENTO" && "Orçamento salvo — estoque não foi baixado."}
+              {sucesso.tipo === "CONDICIONAL" &&
+                `Estoque baixado. Retorno esperado em ${sucesso.dias ?? 7} dia(s).`}
+            </p>
             <div className="mt-5 flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setSucesso(null)}>Nova venda (Enter)</Button>
               <Button variant="accent" className="flex-1" onClick={() => window.print()}>Imprimir cupom</Button>

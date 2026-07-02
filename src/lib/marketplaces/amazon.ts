@@ -18,6 +18,34 @@ const LWA_URL = "https://api.amazon.com/auth/o2/token";
 const SP_API_BASE = "https://sellingpartnerapi-na.amazon.com"; // Brasil usa NA endpoint
 const MARKETPLACE_BR = "A2Q3Y263D00KWC";
 
+// Cap de segurança para loops de paginação.
+const MAX_PAGINAS = 20;
+
+// Retry para rate limit / indisponibilidade: em 429 ou 503 lê Retry-After
+// (segundos, máx 30s de espera) e tenta de novo — máx 3 tentativas.
+// Duplicado em cada adaptador de propósito (arquivos têm donos diferentes).
+async function comRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let tentativa = 0;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (e) {
+      tentativa++;
+      const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+      if ((status !== 429 && status !== 503) || tentativa >= 3) throw e;
+      const retryAfter = Number(
+        axios.isAxiosError(e) ? e.response?.headers?.["retry-after"] : NaN,
+      );
+      const segundos =
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1;
+      await new Promise((r) => setTimeout(r, Math.min(segundos, 30) * 1000));
+    }
+  }
+}
+
+// Aviso único (por processo) sobre a Messaging API restrita.
+let avisouMensagensRestritas = false;
+
 export class AmazonAdapter implements AdaptadorMarketplace {
   plataforma = "AMAZON";
   constructor(private readonly contaId: string) {}
@@ -60,13 +88,25 @@ export class AmazonAdapter implements AdaptadorMarketplace {
 
   async listarAnuncios(): Promise<AnuncioRemoto[]> {
     const http = await this.http();
-    // Listings Items API — exige SKU; aqui paginamos por relatório
+    // Listings Items API — pagina via pagination.nextToken (cap MAX_PAGINAS).
     // (em produção: gerar Report GET_MERCHANT_LISTINGS_ALL_DATA)
-    const { data } = await http.get(
-      `/listings/2021-08-01/items/${MARKETPLACE_BR}`,
-      { params: { marketplaceIds: MARKETPLACE_BR, pageSize: 50 } },
-    );
-    const items: AmzItemRaw[] = data?.items ?? [];
+    const items: AmzItemRaw[] = [];
+    let nextToken: string | undefined;
+    for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+      const { data } = await comRetry(() =>
+        http.get(`/listings/2021-08-01/items/${MARKETPLACE_BR}`, {
+          params: {
+            marketplaceIds: MARKETPLACE_BR,
+            pageSize: 50,
+            ...(nextToken ? { pageToken: nextToken } : {}),
+          },
+        }),
+      );
+      const pageItems: AmzItemRaw[] = data?.items ?? [];
+      items.push(...pageItems);
+      nextToken = data?.pagination?.nextToken;
+      if (!nextToken || pageItems.length === 0) break;
+    }
     return items.map((it) => ({
       itemIdExterno: it.sku,
       titulo: it.attributes?.item_name?.[0]?.value ?? it.sku,
@@ -79,14 +119,28 @@ export class AmazonAdapter implements AdaptadorMarketplace {
   async listarPedidosRecentes(): Promise<PedidoRemoto[]> {
     const http = await this.http();
     const desde = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const { data } = await http.get(`/orders/v0/orders`, {
-      params: { MarketplaceIds: MARKETPLACE_BR, CreatedAfter: desde },
-    });
-    const orders: AmzOrderRaw[] = data?.payload?.Orders ?? [];
+    // Orders API — pagina via payload.NextToken (cap MAX_PAGINAS).
+    const orders: AmzOrderRaw[] = [];
+    let nextToken: string | undefined;
+    for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+      const { data } = await comRetry(() =>
+        http.get(`/orders/v0/orders`, {
+          params: {
+            MarketplaceIds: MARKETPLACE_BR,
+            CreatedAfter: desde,
+            ...(nextToken ? { NextToken: nextToken } : {}),
+          },
+        }),
+      );
+      const pageOrders: AmzOrderRaw[] = data?.payload?.Orders ?? [];
+      orders.push(...pageOrders);
+      nextToken = data?.payload?.NextToken;
+      if (!nextToken || pageOrders.length === 0) break;
+    }
     return Promise.all(
       orders.map(async (o) => {
-        const { data: itensResp } = await http.get(
-          `/orders/v0/orders/${o.AmazonOrderId}/orderItems`,
+        const { data: itensResp } = await comRetry(() =>
+          http.get(`/orders/v0/orders/${o.AmazonOrderId}/orderItems`),
         );
         const itensRaw: AmzOrderItemRaw[] =
           itensResp?.payload?.OrderItems ?? [];
@@ -111,7 +165,17 @@ export class AmazonAdapter implements AdaptadorMarketplace {
   }
 
   async listarMensagensNaoLidas(): Promise<MensagemRemota[]> {
-    // Messaging API: solicitations e mensagens de comprador
+    // A Amazon Messaging API (e a leitura de mensagens de comprador) é
+    // restrita a aplicações aprovadas no programa de Restricted Data Token /
+    // roles específicas ("Buyer Communication"). Sem a aprovação do app na
+    // Seller Central, qualquer chamada retorna 403. Mantemos o stub
+    // retornando [] até o app ter a role liberada.
+    if (!avisouMensagensRestritas) {
+      avisouMensagensRestritas = true;
+      console.warn(
+        "[amazon] Messaging API restrita a apps aprovados — listarMensagensNaoLidas retorna [] até liberação da role Buyer Communication.",
+      );
+    }
     return [];
   }
 

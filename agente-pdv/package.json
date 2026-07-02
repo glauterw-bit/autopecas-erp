@@ -1,0 +1,17 @@
+{
+  "name": "agente-pdv",
+  "version": "1.0.0",
+  "description": "Agente local de hardware do PDV — ponte HTTP (127.0.0.1) entre o ERP web e TEF/SAT/impressora/balança",
+  "main": "servidor.js",
+  "scripts": {
+    "start": "node servidor.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "optionalDependencies": {
+    "serialport": "^12.0.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

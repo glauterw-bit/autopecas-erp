@@ -17,6 +17,34 @@ import type {
 
 const BASE = "https://api.magalu.com";
 
+// Cap de segurança para loops de paginação.
+const MAX_PAGINAS = 20;
+
+// Retry para rate limit / indisponibilidade: em 429 ou 503 lê Retry-After
+// (segundos, máx 30s de espera) e tenta de novo — máx 3 tentativas.
+// Duplicado em cada adaptador de propósito (arquivos têm donos diferentes).
+async function comRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let tentativa = 0;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (e) {
+      tentativa++;
+      const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+      if ((status !== 429 && status !== 503) || tentativa >= 3) throw e;
+      const retryAfter = Number(
+        axios.isAxiosError(e) ? e.response?.headers?.["retry-after"] : NaN,
+      );
+      const segundos =
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1;
+      await new Promise((r) => setTimeout(r, Math.min(segundos, 30) * 1000));
+    }
+  }
+}
+
+// Aviso único (por processo) sobre mensagens indisponíveis via REST.
+let avisouMensagensViaWebhook = false;
+
 export class MagaluAdapter implements AdaptadorMarketplace {
   plataforma = "MAGALU";
   constructor(private readonly contaId: string) {}
@@ -34,10 +62,21 @@ export class MagaluAdapter implements AdaptadorMarketplace {
 
   async listarAnuncios(): Promise<AnuncioRemoto[]> {
     const http = await this.http();
-    const { data } = await http.get(`/portfolio/v1/portfolios`, {
-      params: { _limit: 100 },
-    });
-    const items: MagaluAdRaw[] = data?.data ?? [];
+    // Paginação via _offset/_limit até a página vir incompleta (cap MAX_PAGINAS).
+    const limit = 100;
+    let offset = 0;
+    const items: MagaluAdRaw[] = [];
+    for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+      const { data } = await comRetry(() =>
+        http.get(`/portfolio/v1/portfolios`, {
+          params: { _limit: limit, _offset: offset },
+        }),
+      );
+      const pageItems: MagaluAdRaw[] = data?.data ?? [];
+      items.push(...pageItems);
+      if (pageItems.length < limit) break;
+      offset += limit;
+    }
     return items.map((it) => ({
       itemIdExterno: it.sku,
       titulo: it.title,
@@ -50,10 +89,21 @@ export class MagaluAdapter implements AdaptadorMarketplace {
   async listarPedidosRecentes(): Promise<PedidoRemoto[]> {
     const http = await this.http();
     const desde = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const { data } = await http.get(`/orders/v1/orders`, {
-      params: { created_after: desde, _limit: 50 },
-    });
-    const orders: MagaluOrderRaw[] = data?.data ?? [];
+    // Paginação via _offset/_limit até a página vir incompleta (cap MAX_PAGINAS).
+    const limit = 50;
+    let offset = 0;
+    const orders: MagaluOrderRaw[] = [];
+    for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+      const { data } = await comRetry(() =>
+        http.get(`/orders/v1/orders`, {
+          params: { created_after: desde, _limit: limit, _offset: offset },
+        }),
+      );
+      const pageOrders: MagaluOrderRaw[] = data?.data ?? [];
+      orders.push(...pageOrders);
+      if (pageOrders.length < limit) break;
+      offset += limit;
+    }
     return orders.map((o) => ({
       pedidoIdExterno: o.id,
       status: o.status,
@@ -77,7 +127,16 @@ export class MagaluAdapter implements AdaptadorMarketplace {
   }
 
   async listarMensagensNaoLidas(): Promise<MensagemRemota[]> {
-    // Magalu não expõe inbox unificado; mensagens chegam via webhook.
+    // A Magalu não expõe inbox unificado via REST para polling — as mensagens
+    // do cliente chegam exclusivamente via webhook (assinado no portal de
+    // integração e recebido em /api/webhooks/marketplaces?plataforma=MAGALU).
+    // O stub retorna [] de propósito; o fluxo real é orientado a eventos.
+    if (!avisouMensagensViaWebhook) {
+      avisouMensagensViaWebhook = true;
+      console.warn(
+        "[magalu] Sem API de polling de mensagens — mensagens chegam via webhook; listarMensagensNaoLidas retorna [].",
+      );
+    }
     return [];
   }
 
