@@ -1,17 +1,54 @@
+import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { prisma } from "../db";
+import { verificarSenha } from "../auth/config";
 
 // Sessão do portal B2B
 // ====================
-// Clientes (mecânicos, frotistas, revendas) logam separadamente do ERP
-// interno. Não compartilham auth com os usuários da loja — fica seguro
-// porque cada cliente só vê os próprios dados.
+// Clientes (mecânicas, frotistas, revendas) logam separadamente do ERP.
+// O cookie é ASSINADO (HMAC-SHA256) — o valor `id.exp` sozinho não vale nada
+// sem a assinatura, então não dá pra forjar sessão trocando o id.
+// O acesso só existe se um gestor ativou o B2B do cliente e definiu senha.
 
 const COOKIE = "ap_b2b_cliente";
+const TTL_S = 7 * 24 * 3600;
+
+function segredo(): string {
+  const s = process.env.SESSION_SECRET;
+  if (s && s.length >= 32) return s;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET não configurado (mínimo 32 caracteres)");
+  }
+  return "dev-secret-nao-usar-em-producao-0000";
+}
+
+function assinar(payload: string): string {
+  return crypto.createHmac("sha256", segredo()).update(payload).digest("base64url");
+}
+
+export function selarSessaoB2B(clienteId: string): string {
+  const exp = Math.floor(Date.now() / 1000) + TTL_S;
+  const payload = `${clienteId}.${exp}`;
+  return `${payload}.${assinar(payload)}`;
+}
+
+export function abrirSessaoB2B(valor: string | undefined): string | null {
+  if (!valor) return null;
+  const partes = valor.split(".");
+  if (partes.length !== 3) return null;
+  const [id, expStr, sig] = partes;
+  const payload = `${id}.${expStr}`;
+  const esperada = assinar(payload);
+  const a = Buffer.from(sig);
+  const b = Buffer.from(esperada);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  if (Number(expStr) < Math.floor(Date.now() / 1000)) return null;
+  return id;
+}
 
 export async function clienteAtualB2B() {
   const c = await cookies();
-  const id = c.get(COOKIE)?.value;
+  const id = abrirSessaoB2B(c.get(COOKIE)?.value);
   if (!id) return null;
   const cliente = await prisma.cliente.findUnique({
     where: { id },
@@ -20,29 +57,28 @@ export async function clienteAtualB2B() {
       veiculos: { include: { versao: { include: { modelo: { include: { montadora: true } } } } } },
     },
   });
-  if (!cliente || cliente.bloqueado) return null;
+  if (!cliente || cliente.bloqueado || !cliente.b2bAtivo) return null;
   return cliente;
 }
 
 export async function loginB2B(cpfCnpj: string, senha: string) {
-  // Em produção: bcrypt hash. Aqui usamos o último dígito do CPF como senha
-  // demo para acelerar testes. NÃO USAR ASSIM EM PROD.
   const cliente = await prisma.cliente.findFirst({
     where: { cpfCnpj: cpfCnpj.replace(/\D/g, "") },
   });
   if (!cliente) return null;
   if (cliente.bloqueado) throw new Error("Cliente bloqueado");
-  // placeholder: senha = últimos 4 dígitos do CPF/CNPJ
-  const esperada = cliente.cpfCnpj?.slice(-4);
-  if (senha !== esperada) return null;
+  if (!cliente.b2bAtivo || !cliente.senhaHashB2B) {
+    throw new Error("Acesso B2B não habilitado. Fale com a loja.");
+  }
+  if (!verificarSenha(senha, cliente.senhaHashB2B)) return null;
 
   const c = await cookies();
-  c.set(COOKIE, cliente.id, {
+  c.set(COOKIE, selarSessaoB2B(cliente.id), {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 7 * 24 * 3600,
-    path: "/b2b",
+    maxAge: TTL_S,
+    path: "/",
   });
   return cliente;
 }

@@ -1,20 +1,38 @@
 // Bootstrap rodado a cada start em produção.
-// 1) Aplica schema no banco (db push) — idempotente, só altera o que mudou
+// 1) Aplica migrations versionadas (prisma migrate deploy). Em bancos criados
+//    na era do `db push` (sem tabela _prisma_migrations), faz baseline
+//    automático marcando 0_init como aplicada — sem tocar nos dados.
 // 2) Roda seed se a base está vazia (primeira execução)
 //
 // Logs detalhados para facilitar debug no Railway.
 
 import { execSync } from "node:child_process";
 
-async function main() {
-  console.log("[bootstrap] Aplicando schema...");
+function migrar() {
+  const run = (cmd: string) => execSync(cmd, { stdio: "pipe", env: process.env }).toString();
   try {
-    execSync("npx prisma db push --skip-generate --accept-data-loss", {
-      stdio: "inherit",
-      env: process.env,
-    });
+    console.log(run("npx prisma migrate deploy"));
+    return;
   } catch (e) {
-    console.error("[bootstrap] Falha no db push:", e);
+    const saida = String((e as { stdout?: Buffer; stderr?: Buffer }).stdout ?? "") +
+      String((e as { stderr?: Buffer }).stderr ?? "");
+    if (!saida.includes("P3005")) {
+      console.error("[bootstrap] Falha no migrate deploy:", saida.slice(0, 2000));
+      throw e;
+    }
+    // P3005 = banco tem schema mas não tem histórico de migrations (era db push)
+    console.log("[bootstrap] Banco existente sem histórico — aplicando baseline 0_init...");
+    console.log(run("npx prisma migrate resolve --applied 0_init"));
+    console.log(run("npx prisma migrate deploy"));
+  }
+}
+
+async function main() {
+  console.log("[bootstrap] Aplicando migrations...");
+  try {
+    migrar();
+  } catch (e) {
+    console.error("[bootstrap] Falha ao migrar:", e);
     process.exit(1);
   }
 

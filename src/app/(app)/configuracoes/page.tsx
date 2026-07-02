@@ -4,6 +4,7 @@ import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { maskCpfCnpj } from "@/lib/utils";
+import { VallenteCard } from "@/components/configuracoes/vallente-card";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,12 @@ export default async function ConfiguracoesPage() {
           })}
         </CardContent>
       </Card>
+
+      <VallenteCard
+        configurada={Boolean(empresa?.vallenteApiKey)}
+        sufixo={empresa?.vallenteApiKey?.slice(-6) ?? null}
+        baseUrl={process.env.APP_URL ?? "https://autopecas-app-production.up.railway.app"}
+      />
     </div>
   );
 }

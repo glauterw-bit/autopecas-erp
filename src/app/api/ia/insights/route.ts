@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 
-export async function GET(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const tipo = req.nextUrl.searchParams.get("tipo");
   const aberto = req.nextUrl.searchParams.get("aberto") !== "false";
   const insights = await prisma.insightIA.findMany({
@@ -30,20 +30,25 @@ export async function GET(req: NextRequest) {
     take: 200,
   });
   return NextResponse.json(insights);
-}
+});
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
   const { id, feedback, resolver } = (await req.json()) as {
     id: string;
     feedback?: "UTIL" | "NAO_UTIL" | "INCORRETO";
     resolver?: boolean;
   };
+  const existente = await prisma.insightIA.findFirst({
+    where: { id, empresaId: usuario.empresaId },
+    select: { id: true },
+  });
+  if (!existente) throw new ApiError(404, "Insight não encontrado");
   const insight = await prisma.insightIA.update({
-    where: { id },
+    where: { id: existente.id },
     data: {
       ...(feedback && { feedback }),
       ...(resolver && { resolvidoEm: new Date() }),
     },
   });
   return NextResponse.json(insight);
-}
+});

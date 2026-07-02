@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { gerarBrCodePixEstatico, gerarTxid, PspPixClient } from "@/lib/pagamentos/pix";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
 const schema = z.object({
   valor: z.number().positive(),
@@ -13,8 +13,8 @@ const schema = z.object({
   expiracaoSegundos: z.number().int().positive().optional(),
 });
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("CAIXA", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const body = schema.parse(await req.json());
   const empresa = await prisma.empresa.findUniqueOrThrow({
     where: { id: empresaId },
@@ -63,4 +63,4 @@ export async function POST(req: NextRequest) {
     brcode,
     // Frontend gera o QR Code com este texto via biblioteca/canvas.
   });
-}
+});

@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { extrairNfEntrada } from "@/lib/ai/ocr-nf";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function POST(req: NextRequest) {
+export const POST = comAuth("ESTOQUISTA", async (req) => {
   const form = await req.formData();
   const arquivos = form.getAll("arquivo");
   const inputs: Array<{ base64: string; tipo: "image/jpeg" | "image/png" | "application/pdf" }> = [];
@@ -18,4 +19,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: "Envie ao menos um arquivo" }, { status: 400 });
   const nfe = await extrairNfEntrada(inputs);
   return NextResponse.json(nfe);
-}
+});

@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { BalancaLocalClient, type ModeloBalanca } from "@/lib/pdv/balanca";
+import { comAuth } from "@/lib/auth/guard";
 
 // Proxy: o front chama este endpoint, que repassa para o Agente Local do PDV.
 // Em produção, o front pode chamar 127.0.0.1 direto — este é alternativa
@@ -7,7 +8,7 @@ import { BalancaLocalClient, type ModeloBalanca } from "@/lib/pdv/balanca";
 
 const cliente = new BalancaLocalClient();
 
-export async function GET(req: NextRequest) {
+export const GET = comAuth("CAIXA", async (req) => {
   const modelo = (req.nextUrl.searchParams.get("modelo") ?? "TOLEDO_PRIX_III") as ModeloBalanca;
   const estavel = req.nextUrl.searchParams.get("estavel") === "true";
   try {
@@ -18,4 +19,4 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ erro: (e as Error).message }, { status: 502 });
   }
-}
+});

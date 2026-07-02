@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 
-export async function GET(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const tipo = req.nextUrl.searchParams.get("tipo") ?? "receber";
   if (tipo === "receber") {
     const itens = await prisma.contaReceber.findMany({
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(movimentos);
   }
   return NextResponse.json({ erro: "tipo inválido" }, { status: 400 });
-}
+});
 
 const baixaSchema = z.object({
   tipo: z.enum(["receber", "pagar"]),
@@ -45,15 +45,17 @@ const baixaSchema = z.object({
   data: z.string().optional(),
 });
 
-export async function POST(req: NextRequest) {
+export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const body = baixaSchema.parse(await req.json());
   const data = body.data ? new Date(body.data) : new Date();
   if (body.tipo === "receber") {
-    const c = await prisma.contaReceber.findUniqueOrThrow({ where: { id: body.id } });
+    const c = await prisma.contaReceber.findFirst({ where: { id: body.id, empresaId } });
+    if (!c) throw new ApiError(404, "Conta a receber não encontrada");
     const novo = Number(c.valorRecebido) + body.valor;
     const status = novo >= Number(c.valor) ? "PAGO" : "PARCIALMENTE_PAGO";
     const out = await prisma.contaReceber.update({
-      where: { id: body.id },
+      where: { id: c.id },
       data: {
         valorRecebido: novo,
         status,
@@ -63,7 +65,7 @@ export async function POST(req: NextRequest) {
     });
     await prisma.movimentoCaixa.create({
       data: {
-        empresaId: c.empresaId,
+        empresaId,
         contaBancariaId: body.contaBancariaId,
         tipo: "ENTRADA",
         valor: body.valor,
@@ -73,11 +75,12 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(out);
   } else {
-    const c = await prisma.contaPagar.findUniqueOrThrow({ where: { id: body.id } });
+    const c = await prisma.contaPagar.findFirst({ where: { id: body.id, empresaId } });
+    if (!c) throw new ApiError(404, "Conta a pagar não encontrada");
     const novo = Number(c.valorPago) + body.valor;
     const status = novo >= Number(c.valor) ? "PAGO" : "PARCIALMENTE_PAGO";
     const out = await prisma.contaPagar.update({
-      where: { id: body.id },
+      where: { id: c.id },
       data: {
         valorPago: novo,
         status,
@@ -87,7 +90,7 @@ export async function POST(req: NextRequest) {
     });
     await prisma.movimentoCaixa.create({
       data: {
-        empresaId: c.empresaId,
+        empresaId,
         contaBancariaId: body.contaBancariaId,
         tipo: "SAIDA",
         valor: body.valor,
@@ -97,4 +100,4 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(out);
   }
-}
+});

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   cancelarNotaFiscal,
@@ -7,7 +7,8 @@ import {
   manifestarDestinatario,
   baixarDocumentos,
 } from "@/lib/nfe/operacoes";
-import { empresaAtualId } from "@/lib/sessao";
+import { prisma } from "@/lib/db";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 
 const cancelarSchema = z.object({ acao: z.literal("cancelar"), notaId: z.string(), justificativa: z.string().min(15) });
 const cceSchema = z.object({ acao: z.literal("cce"), notaId: z.string(), correcao: z.string().min(15) });
@@ -34,36 +35,41 @@ const schema = z.discriminatedUnion("acao", [
   baixarSchema,
 ]);
 
-export async function POST(req: NextRequest) {
-  const body = schema.parse(await req.json());
-  const empresaId = await empresaAtualId();
-  try {
-    if (body.acao === "cancelar") {
-      const out = await cancelarNotaFiscal(body.notaId, body.justificativa);
-      return NextResponse.json(out);
-    }
-    if (body.acao === "cce") {
-      const out = await emitirCartaCorrecao(body.notaId, body.correcao);
-      return NextResponse.json(out);
-    }
-    if (body.acao === "inutilizar") {
-      const out = await inutilizarRange({ empresaId, ...body });
-      return NextResponse.json(out);
-    }
-    if (body.acao === "manifestar") {
-      const out = await manifestarDestinatario({
-        empresaId,
-        chaveAcesso: body.chaveAcesso,
-        evento: body.evento,
-        justificativa: body.justificativa,
-      });
-      return NextResponse.json(out);
-    }
-    if (body.acao === "baixar") {
-      const out = await baixarDocumentos(body.notaId);
-      return NextResponse.json(out);
-    }
-  } catch (e) {
-    return NextResponse.json({ erro: (e as Error).message }, { status: 400 });
-  }
+async function exigirNotaDaEmpresa(notaId: string, empresaId: string) {
+  const nota = await prisma.notaFiscal.findFirst({
+    where: { id: notaId, empresaId },
+    select: { id: true },
+  });
+  if (!nota) throw new ApiError(404, "Nota fiscal não encontrada");
 }
+
+export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
+  const body = schema.parse(await req.json());
+  if (body.acao === "cancelar") {
+    await exigirNotaDaEmpresa(body.notaId, empresaId);
+    const out = await cancelarNotaFiscal(body.notaId, body.justificativa);
+    return NextResponse.json(out);
+  }
+  if (body.acao === "cce") {
+    await exigirNotaDaEmpresa(body.notaId, empresaId);
+    const out = await emitirCartaCorrecao(body.notaId, body.correcao);
+    return NextResponse.json(out);
+  }
+  if (body.acao === "inutilizar") {
+    const out = await inutilizarRange({ empresaId, ...body });
+    return NextResponse.json(out);
+  }
+  if (body.acao === "manifestar") {
+    const out = await manifestarDestinatario({
+      empresaId,
+      chaveAcesso: body.chaveAcesso,
+      evento: body.evento,
+      justificativa: body.justificativa,
+    });
+    return NextResponse.json(out);
+  }
+  await exigirNotaDaEmpresa(body.notaId, empresaId);
+  const out = await baixarDocumentos(body.notaId);
+  return NextResponse.json(out);
+});

@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { identificarPecaPorImagem } from "@/lib/ai/vision";
 import { buscarEquivalentes } from "@/lib/ai/cross-reference";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const form = await req.formData();
   const fotos = form.getAll("foto");
   if (fotos.length === 0)
@@ -32,4 +32,4 @@ export async function POST(req: NextRequest) {
   }).catch(() => []);
 
   return NextResponse.json({ identificacao, sugestoes });
-}
+});

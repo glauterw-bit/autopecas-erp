@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
 const produtoSchema = z.object({
   sku: z.string().min(1),
@@ -22,8 +22,8 @@ const produtoSchema = z.object({
   localizacao: z.string().optional().nullable(),
 });
 
-export async function GET(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const q = req.nextUrl.searchParams.get("q")?.trim();
   const ativo = req.nextUrl.searchParams.get("ativo") !== "false";
   const produtos = await prisma.produto.findMany({
@@ -45,13 +45,13 @@ export async function GET(req: NextRequest) {
     orderBy: { atualizadoEm: "desc" },
   });
   return NextResponse.json(produtos);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const body = produtoSchema.parse(await req.json());
   const produto = await prisma.produto.create({
     data: { ...body, empresaId },
   });
   return NextResponse.json(produto, { status: 201 });
-}
+});

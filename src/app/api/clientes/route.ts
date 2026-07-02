@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
 const clienteSchema = z.object({
   tipo: z.enum(["PF", "PJ", "ESTRANGEIRO"]).default("PF"),
@@ -30,8 +30,8 @@ const clienteSchema = z.object({
   limiteCredito: z.number().nonnegative().default(0),
 });
 
-export async function GET(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const q = req.nextUrl.searchParams.get("q");
   const clientes = await prisma.cliente.findMany({
     where: {
@@ -50,11 +50,11 @@ export async function GET(req: NextRequest) {
     orderBy: { nome: "asc" },
   });
   return NextResponse.json(clientes);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const body = clienteSchema.parse(await req.json());
   const cliente = await prisma.cliente.create({ data: { ...body, empresaId } });
   return NextResponse.json(cliente, { status: 201 });
-}
+});

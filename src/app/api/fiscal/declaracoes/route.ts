@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { gerarDctfWeb, gerarDEFIS, gerarEfdReinf } from "@/lib/fiscal/declaracoes";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function GET(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const tipo = req.nextUrl.searchParams.get("tipo") ?? "dctf";
   const comp = req.nextUrl.searchParams.get("competencia");
   const hoje = new Date();
@@ -19,4 +19,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(await gerarEfdReinf({ empresaId, competencia }));
   }
   return NextResponse.json({ erro: "tipo inválido (dctf|defis|efd-reinf)" }, { status: 400 });
-}
+});

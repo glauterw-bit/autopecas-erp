@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { calcularItemFiscal } from "@/lib/fiscal/calculo";
+import { comAuth } from "@/lib/auth/guard";
 
 const schema = z.object({
   valorProdutos: z.number().positive(),
@@ -18,8 +19,8 @@ const schema = z.object({
   contribuinteIcms: z.boolean().default(false),
 });
 
-export async function POST(req: NextRequest) {
+export const POST = comAuth("VENDEDOR", async (req) => {
   const body = schema.parse(await req.json());
   const resultado = calcularItemFiscal(body);
   return NextResponse.json(resultado);
-}
+});

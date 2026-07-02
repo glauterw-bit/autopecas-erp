@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   cancelarAssinatura,
@@ -7,6 +7,8 @@ import {
   pausarAssinatura,
   retomarAssinatura,
 } from "@/lib/pagamentos/pix-recorrente";
+import { prisma } from "@/lib/db";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 
 const criarSchema = z.object({
   acao: z.literal("criar"),
@@ -32,27 +34,28 @@ const schema = z.discriminatedUnion("acao", [
   cobrarSchema,
 ]);
 
-export async function POST(req: NextRequest) {
+export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
   const body = schema.parse(await req.json());
-  try {
-    if (body.acao === "criar") {
-      const data = await criarAssinatura({
-        id: body.id,
-        clienteId: body.clienteId,
-        descricao: body.descricao,
-        valor: body.valor,
-        periodicidade: body.periodicidade,
-        dataInicio: new Date(body.dataInicio),
-        dataFim: body.dataFim ? new Date(body.dataFim) : undefined,
-        diaCobranca: body.diaCobranca,
-      });
-      return NextResponse.json(data);
-    }
-    if (body.acao === "pausar") return NextResponse.json(await pausarAssinatura(body.idRec));
-    if (body.acao === "retomar") return NextResponse.json(await retomarAssinatura(body.idRec));
-    if (body.acao === "cancelar") return NextResponse.json(await cancelarAssinatura(body.idRec, body.motivo));
-    return NextResponse.json(await gerarCobrancaImediata(body.idRec, body.valor));
-  } catch (e) {
-    return NextResponse.json({ erro: (e as Error).message }, { status: 400 });
+  if (body.acao === "criar") {
+    const cliente = await prisma.cliente.findFirst({
+      where: { id: body.clienteId, empresaId: usuario.empresaId },
+      select: { id: true },
+    });
+    if (!cliente) throw new ApiError(404, "Cliente não encontrado");
+    const data = await criarAssinatura({
+      id: body.id,
+      clienteId: body.clienteId,
+      descricao: body.descricao,
+      valor: body.valor,
+      periodicidade: body.periodicidade,
+      dataInicio: new Date(body.dataInicio),
+      dataFim: body.dataFim ? new Date(body.dataFim) : undefined,
+      diaCobranca: body.diaCobranca,
+    });
+    return NextResponse.json(data);
   }
-}
+  if (body.acao === "pausar") return NextResponse.json(await pausarAssinatura(body.idRec));
+  if (body.acao === "retomar") return NextResponse.json(await retomarAssinatura(body.idRec));
+  if (body.acao === "cancelar") return NextResponse.json(await cancelarAssinatura(body.idRec, body.motivo));
+  return NextResponse.json(await gerarCobrancaImediata(body.idRec, body.valor));
+});

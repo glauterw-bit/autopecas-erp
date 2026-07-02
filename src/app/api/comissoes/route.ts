@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { apurarComissaoVendedor, fecharApuracaoMensal } from "@/lib/comissao/calculo";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function GET(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("GERENTE", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const competencia = req.nextUrl.searchParams.get("competencia");
   const vendedorId = req.nextUrl.searchParams.get("vendedorId");
   if (competencia && vendedorId) {
@@ -21,14 +21,14 @@ export async function GET(req: NextRequest) {
     take: 100,
   });
   return NextResponse.json(apuracoes);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("GERENTE", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const { competencia } = (await req.json()) as { competencia: string };
   const out = await fecharApuracaoMensal({
     empresaId,
     competencia: new Date(competencia + "-01"),
   });
   return NextResponse.json(out);
-}
+});

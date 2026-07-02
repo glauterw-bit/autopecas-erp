@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { importarTafXml } from "@/lib/catalogo/tecdoc-xml";
 import { sincronizarTecdocEmpresa } from "@/lib/catalogo/tecdoc-sync";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("GERENTE", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const tipoConteudo = req.headers.get("content-type") ?? "";
 
   // multipart com arquivo XML
@@ -21,4 +21,4 @@ export async function POST(req: NextRequest) {
   // pull automático da URL configurada
   const out = await sincronizarTecdocEmpresa(empresaId);
   return NextResponse.json(out);
-}
+});

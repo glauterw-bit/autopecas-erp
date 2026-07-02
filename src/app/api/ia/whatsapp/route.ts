@@ -1,10 +1,13 @@
+import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { conversarChat } from "@/lib/ai/chat";
+import { enviarTexto } from "@/lib/marketplaces/whatsapp";
 
 // Webhook do WhatsApp Business Cloud API.
-// Recebe mensagens dos clientes, roteia pelo CopilotoBalcão (com tool-use no
-// catálogo da empresa) e devolve a resposta — registrando tudo em ConversaIA.
+// Inbound verificado com X-Hub-Signature-256 (HMAC do corpo com o App Secret
+// da Meta) — sem isso qualquer um forjaria conversas. A resposta da IA é
+// enviada de volta via Graph API e tudo fica registrado em ConversaIA.
 
 export async function GET(req: NextRequest) {
   // Validação inicial do webhook (Meta envia challenge no primeiro registro)
@@ -17,18 +20,37 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ erro: "verificação falhou" }, { status: 403 });
 }
 
+function assinaturaValida(bruto: string, header: string | null): boolean {
+  const secret = process.env.META_APP_SECRET;
+  if (!secret) {
+    console.error("[whatsapp] META_APP_SECRET não configurado — rejeitando inbound");
+    return false;
+  }
+  if (!header?.startsWith("sha256=")) return false;
+  const calc = crypto.createHmac("sha256", secret).update(bruto, "utf8").digest("hex");
+  const recebida = header.slice("sha256=".length);
+  if (recebida.length !== calc.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(recebida, "hex"), Buffer.from(calc, "hex"));
+}
+
 export async function POST(req: NextRequest) {
-  const body = (await req.json()) as {
+  const bruto = await req.text();
+  if (!assinaturaValida(bruto, req.headers.get("x-hub-signature-256"))) {
+    return NextResponse.json({ erro: "assinatura inválida" }, { status: 401 });
+  }
+
+  const body = JSON.parse(bruto) as {
     entry?: Array<{ changes?: Array<{ value?: { messages?: Array<{ from: string; text?: { body: string } }> } }> }>;
   };
   const mensagens = body.entry?.[0]?.changes?.[0]?.value?.messages ?? [];
   if (mensagens.length === 0) return NextResponse.json({ ok: true });
 
+  // Uma instalação atende uma empresa por número de WhatsApp; enquanto houver
+  // um único número conectado, roteamos para a empresa que tem o canal ativo.
   const empresa = await prisma.empresa.findFirstOrThrow({ select: { id: true } });
 
   for (const m of mensagens) {
     if (!m.text?.body) continue;
-    // Localiza cliente pelo whatsapp.
     const cliente = await prisma.cliente.findFirst({
       where: { empresaId: empresa.id, whatsapp: { contains: m.from } },
       select: { id: true },
@@ -52,8 +74,11 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    // Envia resposta para o WhatsApp (placeholder — em produção chama Graph API)
-    // POST https://graph.facebook.com/v20.0/{phone_id}/messages
+    try {
+      await enviarTexto({ para: m.from, texto: resposta });
+    } catch (e) {
+      console.error("[whatsapp] falha ao responder", m.from, (e as Error).message);
+    }
   }
   return NextResponse.json({ ok: true });
 }

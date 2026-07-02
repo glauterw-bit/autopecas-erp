@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function GET() {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("ESTOQUISTA", async (_req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const inicioMes = new Date();
   inicioMes.setDate(1);
   inicioMes.setHours(0, 0, 0, 0);
@@ -94,4 +94,4 @@ export async function GET() {
     topProdutos,
     vendasPorDia,
   });
-}
+});

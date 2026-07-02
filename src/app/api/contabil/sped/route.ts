@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { gerarSpedECD, gerarSpedEFD } from "@/lib/contabil/sped";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function GET(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const tipo = req.nextUrl.searchParams.get("tipo") ?? "ECD"; // ECD | EFD
   const inicioParam = req.nextUrl.searchParams.get("inicio");
   const fimParam = req.nextUrl.searchParams.get("fim");
@@ -19,4 +19,4 @@ export async function GET(req: NextRequest) {
       "Content-Disposition": `attachment; filename="SPED-${tipo}-${inicio.toISOString().slice(0, 10)}.txt"`,
     },
   });
-}
+});

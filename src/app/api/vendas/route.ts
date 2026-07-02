@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { empresaAtualId, usuarioAtual } from "@/lib/sessao";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 import { avaliarMargemItem } from "@/lib/ai/margin-guard";
 import type { Prisma } from "@prisma/client";
 
@@ -53,8 +53,8 @@ const vendaSchema = z.object({
   observacoes: z.string().optional(),
 });
 
-export async function GET() {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("VENDEDOR", async (_req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const vendas = await prisma.venda.findMany({
     where: { empresaId },
     include: { cliente: true, itens: { include: { produto: true } }, pagamentos: true },
@@ -62,17 +62,24 @@ export async function GET() {
     take: 50,
   });
   return NextResponse.json(vendas);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
-  const usuario = await usuarioAtual();
+export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const body = vendaSchema.parse(await req.json());
+
+  if (body.clienteId) {
+    const cliente = await prisma.cliente.findFirst({
+      where: { id: body.clienteId, empresaId },
+      select: { id: true },
+    });
+    if (!cliente) throw new ApiError(404, "Cliente não encontrado");
+  }
 
   // Carrega produtos para validar estoque, margem, preço.
   const produtoIds = body.itens.map((i) => i.produtoId);
   const produtos = await prisma.produto.findMany({
-    where: { id: { in: produtoIds } },
+    where: { id: { in: produtoIds }, empresaId },
     include: { estoques: true },
   });
   const byId = new Map(produtos.map((p) => [p.id, p]));
@@ -190,7 +197,7 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json(venda, { status: 201 });
-}
+});
 
 async function proximoNumeroVenda(empresaId: string): Promise<number> {
   const ultima = await prisma.venda.findFirst({

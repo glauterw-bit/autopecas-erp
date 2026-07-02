@@ -1,13 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { sincronizarConta } from "@/lib/marketplaces/unified";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("GERENTE", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const { contaId } = (await req.json()) as { contaId?: string };
   if (contaId) {
-    const out = await sincronizarConta(contaId);
+    const conta = await prisma.marketplaceConta.findFirst({
+      where: { id: contaId, empresaId },
+      select: { id: true },
+    });
+    if (!conta) throw new ApiError(404, "Conta de marketplace não encontrada");
+    const out = await sincronizarConta(conta.id);
     return NextResponse.json(out);
   }
   // sincroniza todas
@@ -24,4 +29,4 @@ export async function POST(req: NextRequest) {
     }
   }
   return NextResponse.json(resultados);
-}
+});

@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { abrirRMA, autorizarRMA, registrarRecebimento, resolverRMA } from "@/lib/rma/rma";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 
-export async function GET(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const status = req.nextUrl.searchParams.get("status");
   const rmas = await prisma.solicitacaoRMA.findMany({
     where: { empresaId, ...(status && { status: status as "AGUARDANDO_AUTORIZACAO" | "AUTORIZADA" | "AGUARDANDO_RECEBIMENTO" | "RECEBIDA" | "EM_ANALISE" | "APROVADA" | "RECUSADA" | "CONCLUIDA" }) },
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     take: 100,
   });
   return NextResponse.json(rmas);
-}
+});
 
 const abrirSchema = z.object({
   acao: z.literal("abrir"),
@@ -48,25 +48,29 @@ const resolverSchema = z.object({
 
 const schema = z.discriminatedUnion("acao", [abrirSchema, autorizarSchema, receberSchema, resolverSchema]);
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const body = schema.parse(await req.json());
-  try {
-    if (body.acao === "abrir") {
-      const out = await abrirRMA({ empresaId, ...body });
-      return NextResponse.json(out, { status: 201 });
-    }
-    if (body.acao === "autorizar") {
-      const out = await autorizarRMA(body.rmaId, body.autorizadoPor);
-      return NextResponse.json(out);
-    }
-    if (body.acao === "receber") {
-      const out = await registrarRecebimento(body.rmaId, body.inspecionadoPor);
-      return NextResponse.json(out);
-    }
-    const out = await resolverRMA(body);
-    return NextResponse.json(out);
-  } catch (e) {
-    return NextResponse.json({ erro: (e as Error).message }, { status: 400 });
+  if (body.acao === "abrir") {
+    const out = await abrirRMA({ empresaId, ...body });
+    return NextResponse.json(out, { status: 201 });
   }
-}
+
+  // Ações sobre um RMA existente: garante que pertence à empresa.
+  const rma = await prisma.solicitacaoRMA.findFirst({
+    where: { id: body.rmaId, empresaId },
+    select: { id: true },
+  });
+  if (!rma) throw new ApiError(404, "RMA não encontrado");
+
+  if (body.acao === "autorizar") {
+    const out = await autorizarRMA(body.rmaId, body.autorizadoPor);
+    return NextResponse.json(out);
+  }
+  if (body.acao === "receber") {
+    const out = await registrarRecebimento(body.rmaId, body.inspecionadoPor);
+    return NextResponse.json(out);
+  }
+  const out = await resolverRMA(body);
+  return NextResponse.json(out);
+});

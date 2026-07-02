@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { cancelarMdfe, emitirMdfe, encerrarMdfe } from "@/lib/nfe/mdfe";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
 const emitirSchema = z.object({
   acao: z.literal("emitir"),
@@ -41,21 +41,17 @@ const cancelarSchema = z.object({
 
 const schema = z.discriminatedUnion("acao", [emitirSchema, encerrarSchema, cancelarSchema]);
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const body = schema.parse(await req.json());
-  try {
-    if (body.acao === "emitir") {
-      const data = await emitirMdfe({ empresaId, ...body });
-      return NextResponse.json(data);
-    }
-    if (body.acao === "encerrar") {
-      const data = await encerrarMdfe(body);
-      return NextResponse.json(data);
-    }
-    const data = await cancelarMdfe(body.chaveMdfe, body.justificativa);
+  if (body.acao === "emitir") {
+    const data = await emitirMdfe({ empresaId, ...body });
     return NextResponse.json(data);
-  } catch (e) {
-    return NextResponse.json({ erro: (e as Error).message }, { status: 400 });
   }
-}
+  if (body.acao === "encerrar") {
+    const data = await encerrarMdfe(body);
+    return NextResponse.json(data);
+  }
+  const data = await cancelarMdfe(body.chaveMdfe, body.justificativa);
+  return NextResponse.json(data);
+});

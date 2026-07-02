@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { gerarBalanco, gerarDFC, gerarDLPA } from "@/lib/contabil/balanco";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function GET(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const GET = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const tipo = req.nextUrl.searchParams.get("tipo") ?? "bp"; // bp | dfc | dlpa
   if (tipo === "bp") {
     const dataRef = req.nextUrl.searchParams.get("data");
@@ -28,4 +28,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(dlpa);
   }
   return NextResponse.json({ erro: "tipo inválido (bp|dfc|dlpa)" }, { status: 400 });
-}
+});

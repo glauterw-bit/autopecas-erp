@@ -1,15 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 import { emitirNotaFiscal } from "@/lib/nfe/emissor";
 
-export async function POST(_: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const POST = comAuth<Ctx>("CAIXA", async (_req, ctx, usuario) => {
   const { id } = await ctx.params;
-  try {
-    const nota = await emitirNotaFiscal(id);
-    return NextResponse.json(nota);
-  } catch (err) {
-    return NextResponse.json(
-      { erro: err instanceof Error ? err.message : "Erro ao emitir nota" },
-      { status: 400 },
-    );
-  }
-}
+  const venda = await prisma.venda.findFirst({
+    where: { id, empresaId: usuario.empresaId },
+    select: { id: true },
+  });
+  if (!venda) throw new ApiError(404, "Venda não encontrada");
+  const nota = await emitirNotaFiscal(venda.id);
+  return NextResponse.json(nota);
+});

@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { buscarEquivalentes, salvarCrossReference } from "@/lib/ai/cross-reference";
-import { empresaAtualId } from "@/lib/sessao";
+import { prisma } from "@/lib/db";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const alvo = (await req.json()) as {
     nome: string;
     marca?: string | null;
@@ -14,6 +15,11 @@ export async function POST(req: NextRequest) {
   };
   const resultados = await buscarEquivalentes(empresaId, alvo);
   if (alvo.salvar && resultados[0] && resultados[0].confianca >= 0.9 && resultados[0].tipo !== "NAO_COMPATIVEL") {
+    const origem = await prisma.produto.findFirst({
+      where: { id: alvo.salvar.origemId, empresaId },
+      select: { id: true },
+    });
+    if (!origem) throw new ApiError(404, "Produto de origem não encontrado");
     await salvarCrossReference(
       alvo.salvar.origemId,
       resultados[0].id,
@@ -22,4 +28,4 @@ export async function POST(req: NextRequest) {
     );
   }
   return NextResponse.json(resultados);
-}
+});

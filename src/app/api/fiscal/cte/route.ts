@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { emitirCte, importarCteEntrada } from "@/lib/nfe/cte";
-import { empresaAtualId } from "@/lib/sessao";
+import { prisma } from "@/lib/db";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 
 const emitirSchema = z.object({
   acao: z.literal("emitir"),
@@ -34,26 +35,27 @@ const importarSchema = z.object({
 
 const schema = z.discriminatedUnion("acao", [emitirSchema, importarSchema]);
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const body = schema.parse(await req.json());
-  try {
-    if (body.acao === "emitir") {
-      const data = await emitirCte({ empresaId, ...body });
-      return NextResponse.json(data);
-    }
-    const data = await importarCteEntrada({
-      empresaId,
-      fornecedorId: body.fornecedorId,
-      chaveCte: body.chaveCte,
-      numero: body.numero,
-      serie: body.serie,
-      dataEmissao: new Date(body.dataEmissao),
-      valorTotal: body.valorTotal,
-      vencimento: new Date(body.vencimento),
-    });
+  if (body.acao === "emitir") {
+    const data = await emitirCte({ empresaId, ...body });
     return NextResponse.json(data);
-  } catch (e) {
-    return NextResponse.json({ erro: (e as Error).message }, { status: 400 });
   }
-}
+  const fornecedor = await prisma.fornecedor.findFirst({
+    where: { id: body.fornecedorId, empresaId },
+    select: { id: true },
+  });
+  if (!fornecedor) throw new ApiError(404, "Fornecedor não encontrado");
+  const data = await importarCteEntrada({
+    empresaId,
+    fornecedorId: body.fornecedorId,
+    chaveCte: body.chaveCte,
+    numero: body.numero,
+    serie: body.serie,
+    dataEmissao: new Date(body.dataEmissao),
+    valorTotal: body.valorTotal,
+    vencimento: new Date(body.vencimento),
+  });
+  return NextResponse.json(data);
+});

@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { conciliarExtrato } from "@/lib/financeiro/conciliacao";
 import { parseOFX } from "@/lib/financeiro/ofx";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const form = await req.formData();
   const arquivo = form.get("ofx");
   const contaBancariaId = String(form.get("contaBancariaId") ?? "");
@@ -17,4 +17,4 @@ export async function POST(req: NextRequest) {
   const extrato = parseOFX(texto);
   const result = await conciliarExtrato({ empresaId, contaBancariaId, extrato });
   return NextResponse.json(result);
-}
+});

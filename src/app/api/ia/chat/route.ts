@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import type OpenAI from "openai";
 import { conversarChat } from "@/lib/ai/chat";
-import { empresaAtualId } from "@/lib/sessao";
+import { comAuth } from "@/lib/auth/guard";
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const { mensagem, historico } = (await req.json()) as {
     mensagem: string;
     historico?: { role: "user" | "assistant"; content: string }[];
@@ -15,4 +15,4 @@ export async function POST(req: NextRequest) {
   }));
   const out = await conversarChat({ empresaId, mensagemUsuario: mensagem, historico: hist });
   return NextResponse.json({ resposta: out.resposta });
-}
+});

@@ -34,6 +34,8 @@ model Empresa {
   inscMunicipal   String?
   regimeTributario RegimeTributario @default(SIMPLES_NACIONAL)
   cnaeFiscal      String?
+  // Integração Vallente Hub (Mercado Livre) — provider "custom" via X-API-Key
+  vallenteApiKey  String?  @unique
   email           String?
   telefone        String?
   logradouro      String?
@@ -532,6 +534,10 @@ model Cliente {
   limiteCredito   Decimal  @default(0) @db.Decimal(14, 2)
   saldoDevedor    Decimal  @default(0) @db.Decimal(14, 2)
   bloqueado       Boolean  @default(false)
+
+  // Portal B2B — acesso só é liberado quando um gestor define a senha
+  b2bAtivo        Boolean  @default(false)
+  senhaHashB2B    String?
   observacoes     String?
   tabelaPrecoId   String?
   tabelaPreco     TabelaPreco? @relation(fields: [tabelaPrecoId], references: [id])
@@ -770,6 +776,7 @@ model Venda {
   status          StatusVenda @default(ABERTA)
   origem          OrigemVenda @default(BALCAO)
   marketplaceConta String?  // se origem é marketplace, qual conta
+  externoId       String?  // id do pedido no sistema de origem (ML via Vallente etc.)
 
   clienteId       String?
   cliente         Cliente? @relation(fields: [clienteId], references: [id])
@@ -804,6 +811,7 @@ model Venda {
   @@unique([empresaId, numero])
   @@index([empresaId, status])
   @@index([empresaId, criadaEm])
+  @@index([empresaId, externoId])
   @@map("vendas")
 }
 

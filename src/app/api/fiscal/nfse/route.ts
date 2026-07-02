@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { cancelarNfse, emitirNfse } from "@/lib/nfe/nfse";
-import { empresaAtualId } from "@/lib/sessao";
+import { prisma } from "@/lib/db";
+import { comAuth, ApiError } from "@/lib/auth/guard";
 
 const itemSchema = z.object({
   codigoServico: z.string(),
@@ -29,17 +30,18 @@ const cancelarSchema = z.object({
 
 const schema = z.discriminatedUnion("acao", [emitirSchema, cancelarSchema]);
 
-export async function POST(req: NextRequest) {
-  const empresaId = await empresaAtualId();
+export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
+  const empresaId = usuario.empresaId;
   const body = schema.parse(await req.json());
-  try {
-    if (body.acao === "emitir") {
-      const nota = await emitirNfse({ empresaId, ...body });
-      return NextResponse.json(nota);
-    }
-    const out = await cancelarNfse(body.notaId, body.motivo);
-    return NextResponse.json(out);
-  } catch (e) {
-    return NextResponse.json({ erro: (e as Error).message }, { status: 400 });
+  if (body.acao === "emitir") {
+    const nota = await emitirNfse({ empresaId, ...body });
+    return NextResponse.json(nota);
   }
-}
+  const nota = await prisma.notaFiscal.findFirst({
+    where: { id: body.notaId, empresaId },
+    select: { id: true },
+  });
+  if (!nota) throw new ApiError(404, "Nota fiscal não encontrada");
+  const out = await cancelarNfse(body.notaId, body.motivo);
+  return NextResponse.json(out);
+});
