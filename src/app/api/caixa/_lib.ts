@@ -18,6 +18,7 @@ export async function sessaoAbertaDoUsuario(usuario: UsuarioSessao) {
       fechadaEm: null,
       caixa: { filial: { empresaId: usuario.empresaId } },
     },
+    orderBy: { abertaEm: "asc" },
     include: {
       caixa: { select: { id: true, nome: true, filial: { select: { nome: true } } } },
       movimentos: {
@@ -45,13 +46,33 @@ export function totaisMovimentos(sessao: SessaoAberta) {
   return { totalSangrias: arred2(sangrias), totalSuprimentos: arred2(suprimentos) };
 }
 
-/** Vendas consideradas na sessão: PAGAs do próprio usuário desde a abertura. */
-function filtroVendasDaSessao(sessao: SessaoAberta, usuario: UsuarioSessao) {
+/**
+ * Pagamentos considerados na sessão (filtro no PAGAMENTO, não na venda):
+ * - pagamentos de vendas vinculadas à sessão (independe de quando a venda foi
+ *   criada — cobre condicional/venda antiga faturada dentro da sessão); OU
+ * - pagamentos criados desde a abertura em vendas PAGAs do próprio usuário
+ *   ainda sem vínculo de sessão.
+ */
+function filtroPagamentosDaSessao(sessao: SessaoAberta, usuario: UsuarioSessao) {
   return {
-    empresaId: usuario.empresaId,
-    vendedorId: usuario.id,
-    status: "PAGA" as const,
-    criadaEm: { gte: sessao.abertaEm },
+    OR: [
+      {
+        venda: {
+          empresaId: usuario.empresaId,
+          status: "PAGA" as const,
+          sessaoCaixaId: sessao.id,
+        },
+      },
+      {
+        criadoEm: { gte: sessao.abertaEm },
+        venda: {
+          empresaId: usuario.empresaId,
+          vendedorId: usuario.id,
+          status: "PAGA" as const,
+          sessaoCaixaId: null,
+        },
+      },
+    ],
   };
 }
 
@@ -60,7 +81,7 @@ export async function esperadoDinheiro(sessao: SessaoAberta, usuario: UsuarioSes
   const { totalSangrias, totalSuprimentos } = totaisMovimentos(sessao);
   const dinheiro = await prisma.pagamentoVenda.aggregate({
     _sum: { valor: true },
-    where: { formaPagamento: "DINHEIRO", venda: filtroVendasDaSessao(sessao, usuario) },
+    where: { formaPagamento: "DINHEIRO", ...filtroPagamentosDaSessao(sessao, usuario) },
   });
   const vendasDinheiro = Number(dinheiro._sum.valor ?? 0);
   return arred2(Number(sessao.valorAbertura) + totalSuprimentos - totalSangrias + vendasDinheiro);
@@ -71,7 +92,7 @@ export async function totaisPorFormaPagamento(sessao: SessaoAberta, usuario: Usu
   const grupos = await prisma.pagamentoVenda.groupBy({
     by: ["formaPagamento"],
     _sum: { valor: true },
-    where: { venda: filtroVendasDaSessao(sessao, usuario) },
+    where: filtroPagamentosDaSessao(sessao, usuario),
   });
   return grupos
     .map((g) => ({ formaPagamento: g.formaPagamento, valor: arred2(Number(g._sum.valor ?? 0)) }))

@@ -58,31 +58,35 @@ const PLANO_MINIMO: { codigo: string; nome: string; tipo: TipoPlano; parent?: st
 ];
 
 // Garante o plano mínimo (idempotente). PlanoConta não tem unique em codigo,
-// então o "upsert" é findFirst+create — seguro pois o plano é global e a
-// função roda em série. Retorna mapa codigo → id.
+// então o "upsert" é findFirst+create — serializado por advisory lock para
+// duas gerações concorrentes não criarem o plano em duplicidade.
+// Retorna mapa codigo → id.
 export async function garantirPlanoContasPadrao(): Promise<Map<string, string>> {
-  const ids = new Map<string, string>();
-  for (const c of PLANO_MINIMO) {
-    const existente = await prisma.planoConta.findFirst({
-      where: { codigo: c.codigo },
-      select: { id: true },
-    });
-    if (existente) {
-      ids.set(c.codigo, existente.id);
-      continue;
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('plano-padrao'))`;
+    const ids = new Map<string, string>();
+    for (const c of PLANO_MINIMO) {
+      const existente = await tx.planoConta.findFirst({
+        where: { codigo: c.codigo },
+        select: { id: true },
+      });
+      if (existente) {
+        ids.set(c.codigo, existente.id);
+        continue;
+      }
+      const criada = await tx.planoConta.create({
+        data: {
+          codigo: c.codigo,
+          nome: c.nome,
+          tipo: c.tipo,
+          parentId: c.parent ? ids.get(c.parent) ?? null : null,
+        },
+        select: { id: true },
+      });
+      ids.set(c.codigo, criada.id);
     }
-    const criada = await prisma.planoConta.create({
-      data: {
-        codigo: c.codigo,
-        nome: c.nome,
-        tipo: c.tipo,
-        parentId: c.parent ? ids.get(c.parent) ?? null : null,
-      },
-      select: { id: true },
-    });
-    ids.set(c.codigo, criada.id);
-  }
-  return ids;
+    return ids;
+  });
 }
 
 async function contaId(codigo: string): Promise<string> {
@@ -98,6 +102,8 @@ type PartidaInput = { conta: string; natureza: "DEBITO" | "CREDITO"; valor: numb
 export type ResultadoLancamento = {
   jaExistia: boolean;
   lancamentoId?: string;
+  // Venda sem valor e sem custo (ex.: brinde/ajuste) — nada a contabilizar.
+  ignorada?: boolean;
 };
 
 const centavos = (n: number) => Math.round(n * 100);
@@ -170,6 +176,10 @@ export async function lancarVenda(vendaId: string): Promise<ResultadoLancamento>
 
   const total = Number(venda.valorTotal);
   const custo = Number(venda.custoTotal);
+  if (centavos(total) === 0 && centavos(custo) === 0) {
+    // Nada a lançar (venda zerada) — não é erro nem duplicidade.
+    return { jaExistia: false, ignorada: true };
+  }
   const aPrazoBruto = venda.pagamentos
     .filter((p) => p.formaPagamento === "CREDIARIO" || p.formaPagamento === "BOLETO")
     .reduce((a, p) => a + Number(p.valor), 0);
@@ -217,12 +227,13 @@ export async function lancarCompra(notaEntradaId: string): Promise<ResultadoLanc
   });
 }
 
-// Baixa de conta a receber → D Caixa x C Clientes. A 1ª baixa usa origemId =
-// id da conta; baixas parciais seguintes usam `${id}:${timestamp}` para não
-// colidir no unique.
+// Baixa de conta a receber → D Caixa x C Clientes.
+// `valorRecebidoAcumulado` é o TOTAL recebido até agora (ContaReceber.
+// valorRecebido) — a função lança apenas o DELTA sobre o que já foi
+// contabilizado. Idempotente e re-executável.
 export async function lancarBaixaReceber(
   contaReceberId: string,
-  valor: number,
+  valorRecebidoAcumulado: number,
 ): Promise<ResultadoLancamento> {
   const conta = await prisma.contaReceber.findUniqueOrThrow({
     where: { id: contaReceberId },
@@ -234,17 +245,17 @@ export async function lancarBaixaReceber(
     historico: `Recebimento: ${conta.descricao}`,
     origemTipo: "BAIXA_CR",
     origemBase: contaReceberId,
-    partidas: [
-      { conta: CONTAS.CAIXA, natureza: "DEBITO", valor },
-      { conta: CONTAS.CLIENTES, natureza: "CREDITO", valor },
-    ],
+    valorAcumulado: valorRecebidoAcumulado,
+    contaDebito: CONTAS.CAIXA,
+    contaCredito: CONTAS.CLIENTES,
   });
 }
 
-// Baixa de conta a pagar → D Fornecedores x C Caixa. Mesma regra de origemId.
+// Baixa de conta a pagar → D Fornecedores x C Caixa. Mesma regra de delta,
+// sobre ContaPagar.valorPago acumulado.
 export async function lancarBaixaPagar(
   contaPagarId: string,
-  valor: number,
+  valorPagoAcumulado: number,
 ): Promise<ResultadoLancamento> {
   const conta = await prisma.contaPagar.findUniqueOrThrow({
     where: { id: contaPagarId },
@@ -256,38 +267,57 @@ export async function lancarBaixaPagar(
     historico: `Pagamento: ${conta.descricao}`,
     origemTipo: "BAIXA_CP",
     origemBase: contaPagarId,
-    partidas: [
-      { conta: CONTAS.FORNECEDORES, natureza: "DEBITO", valor },
-      { conta: CONTAS.CAIXA, natureza: "CREDITO", valor },
-    ],
+    valorAcumulado: valorPagoAcumulado,
+    contaDebito: CONTAS.FORNECEDORES,
+    contaCredito: CONTAS.CAIXA,
   });
 }
 
+// Lançamento de DELTA: soma o que já foi lançado para esta conta (origemId
+// começa com o id — 1ª baixa `id`, seguintes `id:2`, `id:3`...) e lança só a
+// diferença até o acumulado. Delta <= 0 → nada novo a contabilizar.
 async function lancarBaixa(opts: {
   empresaId: string;
   data: Date;
   historico: string;
   origemTipo: "BAIXA_CR" | "BAIXA_CP";
   origemBase: string;
-  partidas: PartidaInput[];
+  valorAcumulado: number;
+  contaDebito: string;
+  contaCredito: string;
 }): Promise<ResultadoLancamento> {
-  const primeira = await criarLancamento({
-    empresaId: opts.empresaId,
-    data: opts.data,
-    historico: opts.historico,
-    origemTipo: opts.origemTipo,
-    origemId: opts.origemBase,
-    partidas: opts.partidas,
+  const existentes = await prisma.lancamentoContabil.findMany({
+    where: {
+      empresaId: opts.empresaId,
+      origemTipo: opts.origemTipo,
+      origemId: { startsWith: opts.origemBase },
+    },
+    select: {
+      partidas: { where: { natureza: "DEBITO" }, select: { valor: true } },
+    },
   });
-  if (!primeira.jaExistia) return primeira;
-  // Já existe baixa com este id: é uma baixa parcial adicional.
+  const somaJaLancada = existentes.reduce(
+    (acc, l) => acc + l.partidas.reduce((s, p) => s + Number(p.valor), 0),
+    0,
+  );
+  const delta = (centavos(opts.valorAcumulado) - centavos(somaJaLancada)) / 100;
+  if (delta <= 0) return { jaExistia: true };
+
+  // Sufixo determinístico: re-execução concorrente colide no unique (P2002)
+  // em vez de duplicar — criarLancamento devolve {jaExistia: true}.
+  const origemId =
+    existentes.length === 0 ? opts.origemBase : `${opts.origemBase}:${existentes.length + 1}`;
+
   return criarLancamento({
     empresaId: opts.empresaId,
     data: opts.data,
     historico: opts.historico,
     origemTipo: opts.origemTipo,
-    origemId: `${opts.origemBase}:${Date.now()}`,
-    partidas: opts.partidas,
+    origemId,
+    partidas: [
+      { conta: opts.contaDebito, natureza: "DEBITO", valor: delta },
+      { conta: opts.contaCredito, natureza: "CREDITO", valor: delta },
+    ],
   });
 }
 
@@ -296,31 +326,52 @@ export type ResumoGeracao = {
   compras: number;
   baixas: number;
   jaExistiam: number;
+  ignoradas: number;
+  erros: string[];
 };
 
 // Varre o período e contabiliza tudo que ainda não tem lançamento.
-// Baixas: como ContaReceber/ContaPagar guardam só o acumulado
-// (valorRecebido/valorPago), a geração em lote lança o acumulado UMA vez por
-// conta (origemId = id da conta) — checa existência antes para não duplicar
-// via sufixo de timestamp em re-execuções. Baixas parciais em tempo real
-// devem chamar lancarBaixaReceber/Pagar diretamente no evento.
+// Baixas: lançamento de DELTA sobre o acumulado (valorRecebido/valorPago) —
+// re-executar o lote só lança o que ainda não foi contabilizado.
+// Falhas individuais não abortam o lote: acumulam em `erros`.
 export async function gerarLancamentosPeriodo(
   empresaId: string,
   de: Date,
   ate: Date,
 ): Promise<ResumoGeracao> {
-  const resumo: ResumoGeracao = { vendas: 0, compras: 0, baixas: 0, jaExistiam: 0 };
+  const resumo: ResumoGeracao = {
+    vendas: 0,
+    compras: 0,
+    baixas: 0,
+    jaExistiam: 0,
+    ignoradas: 0,
+    erros: [],
+  };
+  const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-  // 1) Vendas pagas do período
+  // 1) Vendas pagas do período: janela por fechadaEm; vendas sem fechadaEm
+  // caem na janela por criadaEm.
   const vendas = await prisma.venda.findMany({
-    where: { empresaId, status: "PAGA", criadaEm: { gte: de, lte: ate } },
+    where: {
+      empresaId,
+      status: "PAGA",
+      OR: [
+        { fechadaEm: { gte: de, lte: ate } },
+        { fechadaEm: null, criadaEm: { gte: de, lte: ate } },
+      ],
+    },
     select: { id: true },
     orderBy: { criadaEm: "asc" },
   });
   for (const v of vendas) {
-    const r = await lancarVenda(v.id);
-    if (r.jaExistia) resumo.jaExistiam++;
-    else resumo.vendas++;
+    try {
+      const r = await lancarVenda(v.id);
+      if (r.ignorada) resumo.ignoradas++;
+      else if (r.jaExistia) resumo.jaExistiam++;
+      else resumo.vendas++;
+    } catch (e) {
+      resumo.erros.push(`Venda ${v.id}: ${msg(e)}`);
+    }
   }
 
   // 2) Notas de entrada do período (empresa via fornecedor)
@@ -330,12 +381,16 @@ export async function gerarLancamentosPeriodo(
     orderBy: { dataEntrada: "asc" },
   });
   for (const n of notas) {
-    const r = await lancarCompra(n.id);
-    if (r.jaExistia) resumo.jaExistiam++;
-    else resumo.compras++;
+    try {
+      const r = await lancarCompra(n.id);
+      if (r.jaExistia) resumo.jaExistiam++;
+      else resumo.compras++;
+    } catch (e) {
+      resumo.erros.push(`Nota de entrada ${n.id}: ${msg(e)}`);
+    }
   }
 
-  // 3) Baixas de contas a receber (recebidas no período)
+  // 3) Baixas de contas a receber (recebidas no período) — delta do acumulado
   const recebidas = await prisma.contaReceber.findMany({
     where: {
       empresaId,
@@ -346,21 +401,16 @@ export async function gerarLancamentosPeriodo(
     select: { id: true, valorRecebido: true },
   });
   for (const c of recebidas) {
-    const existente = await prisma.lancamentoContabil.findUnique({
-      where: {
-        empresaId_origemTipo_origemId: { empresaId, origemTipo: "BAIXA_CR", origemId: c.id },
-      },
-      select: { id: true },
-    });
-    if (existente) {
-      resumo.jaExistiam++;
-      continue;
+    try {
+      const r = await lancarBaixaReceber(c.id, Number(c.valorRecebido));
+      if (r.jaExistia) resumo.jaExistiam++;
+      else resumo.baixas++;
+    } catch (e) {
+      resumo.erros.push(`Baixa CR ${c.id}: ${msg(e)}`);
     }
-    await lancarBaixaReceber(c.id, Number(c.valorRecebido));
-    resumo.baixas++;
   }
 
-  // 4) Baixas de contas a pagar (pagas no período)
+  // 4) Baixas de contas a pagar (pagas no período) — delta do acumulado
   const pagas = await prisma.contaPagar.findMany({
     where: {
       empresaId,
@@ -371,18 +421,13 @@ export async function gerarLancamentosPeriodo(
     select: { id: true, valorPago: true },
   });
   for (const c of pagas) {
-    const existente = await prisma.lancamentoContabil.findUnique({
-      where: {
-        empresaId_origemTipo_origemId: { empresaId, origemTipo: "BAIXA_CP", origemId: c.id },
-      },
-      select: { id: true },
-    });
-    if (existente) {
-      resumo.jaExistiam++;
-      continue;
+    try {
+      const r = await lancarBaixaPagar(c.id, Number(c.valorPago));
+      if (r.jaExistia) resumo.jaExistiam++;
+      else resumo.baixas++;
+    } catch (e) {
+      resumo.erros.push(`Baixa CP ${c.id}: ${msg(e)}`);
     }
-    await lancarBaixaPagar(c.id, Number(c.valorPago));
-    resumo.baixas++;
   }
 
   return resumo;

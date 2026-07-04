@@ -16,15 +16,18 @@ export async function receberNotaEntrada(opts: { empresaId: string; notaId: stri
   });
   if (!nota) throw new Error("Nota de entrada não encontrada");
 
-  const jaRecebida = await prisma.movimentoEstoque.findFirst({
-    where: { origemTipo: "ENTRADA_NF", origemId: nota.id },
-    select: { id: true },
-  });
-  if (jaRecebida) throw new Error("Esta nota já foi recebida no estoque");
-
   const itensComProduto = nota.itens.filter((i) => i.produtoId);
   if (itensComProduto.length === 0) {
     throw new Error("Nenhum item da nota tem produto vinculado — faça o match antes de receber");
+  }
+
+  // Todos os produtos vinculados precisam ser da empresa da nota.
+  const idsProdutos = [...new Set(itensComProduto.map((i) => i.produtoId!))];
+  const validos = await prisma.produto.count({
+    where: { id: { in: idsProdutos }, empresaId: opts.empresaId },
+  });
+  if (validos !== idsProdutos.length) {
+    throw new Error("Um ou mais itens da nota estão vinculados a produtos de outra empresa");
   }
 
   const deposito =
@@ -39,10 +42,24 @@ export async function receberNotaEntrada(opts: { empresaId: string; notaId: stri
 
   let itensRecebidos = 0;
   await prisma.$transaction(async (tx) => {
+    // Serializa recebimentos concorrentes da MESMA nota e re-checa a
+    // idempotência já com o lock (fecha o TOCTOU do check fora da transação).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"receber:" + nota.id}))`;
+    const jaRecebida = await tx.movimentoEstoque.findFirst({
+      where: { origemTipo: "ENTRADA_NF", origemId: nota.id },
+      select: { id: true },
+    });
+    if (jaRecebida) throw new Error("Esta nota já foi recebida no estoque");
+
     for (const item of itensComProduto) {
       const produtoId = item.produtoId!;
       const qtd = Number(item.quantidade);
       const custoUnit = Number(item.valorUnitario);
+      if (qtd <= 0) continue;
+
+      // Trava a linha do produto: duas notas do mesmo produto em paralelo
+      // não podem ler o mesmo custoMedio/estoque e se sobrescrever.
+      await tx.$queryRaw`SELECT id FROM produtos WHERE id = ${produtoId} FOR UPDATE`;
 
       // Estoque total ANTES da entrada (todos os depósitos) para o custo médio
       const estoques = await tx.estoqueDeposito.findMany({

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
 
@@ -32,9 +33,7 @@ export const POST = comAuth<Ctx>("GERENTE", async (req, ctx, usuario) => {
 
   const inventario = await prisma.inventario.findFirst({
     where: { id, empresaId: usuario.empresaId },
-    include: {
-      itens: { include: { produto: { select: { custoMedio: true } } } },
-    },
+    select: { id: true, depositoId: true, status: true },
   });
   if (!inventario) throw new ApiError(404, "Inventário não encontrado");
   if (inventario.status === "AJUSTADO") {
@@ -53,12 +52,9 @@ export const POST = comAuth<Ctx>("GERENTE", async (req, ctx, usuario) => {
     return NextResponse.json(cancelado);
   }
 
-  const ajustes = inventario.itens.filter(
-    (item) => item.qtdContada !== null && !item.qtdContada.equals(item.qtdSistema),
-  );
   const agora = new Date();
 
-  await prisma.$transaction(async (tx) => {
+  const itensAjustados = await prisma.$transaction(async (tx) => {
     // trava contra dupla finalização concorrente
     const marcado = await tx.inventario.updateMany({
       where: { id: inventario.id, status: { in: ["EM_CONTAGEM", "CONFERENCIA"] } },
@@ -66,9 +62,30 @@ export const POST = comAuth<Ctx>("GERENTE", async (req, ctx, usuario) => {
     });
     if (marcado.count !== 1) throw new ApiError(409, "Inventário já foi ajustado");
 
-    for (const item of ajustes) {
+    // Itens e saldo ATUAL lidos DENTRO da transação: o delta é sempre contra o
+    // estoque de agora (vendas/entradas entre contagem e finalização não geram
+    // ajuste errado baseado no snapshot qtdSistema).
+    const itens = await tx.itemInventario.findMany({
+      where: { inventarioId: inventario.id, qtdContada: { not: null } },
+      include: { produto: { select: { custoMedio: true } } },
+    });
+
+    let ajustados = 0;
+    for (const item of itens) {
       const contada = item.qtdContada!;
-      const diferenca = contada.minus(item.qtdSistema);
+      const saldo = await tx.estoqueDeposito.findUnique({
+        where: {
+          produtoId_depositoId: {
+            produtoId: item.produtoId,
+            depositoId: inventario.depositoId,
+          },
+        },
+        select: { quantidade: true },
+      });
+      const saldoAtual = saldo ? saldo.quantidade : new Prisma.Decimal(0);
+      const diferenca = contada.minus(saldoAtual);
+      if (diferenca.isZero()) continue;
+
       await tx.movimentoEstoque.create({
         data: {
           produtoId: item.produtoId,
@@ -95,13 +112,15 @@ export const POST = comAuth<Ctx>("GERENTE", async (req, ctx, usuario) => {
         },
         update: { quantidade: contada },
       });
+      ajustados += 1;
     }
+    return ajustados;
   });
 
   return NextResponse.json({
     id: inventario.id,
     status: "AJUSTADO",
     finalizadoEm: agora,
-    itensAjustados: ajustes.length,
+    itensAjustados,
   });
 });

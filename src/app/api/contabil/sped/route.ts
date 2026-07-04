@@ -4,9 +4,11 @@ import { comAuth } from "@/lib/auth/guard";
 
 export const GET = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
-  const tipo = req.nextUrl.searchParams.get("tipo") ?? "ECD"; // ECD | EFD
-  const inicioParam = req.nextUrl.searchParams.get("inicio");
-  const fimParam = req.nextUrl.searchParams.get("fim");
+  const tipo = (req.nextUrl.searchParams.get("tipo") ?? "ECD").toUpperCase(); // ECD | EFD
+  const inicioParam =
+    req.nextUrl.searchParams.get("inicio") ?? req.nextUrl.searchParams.get("de");
+  const fimParam =
+    req.nextUrl.searchParams.get("fim") ?? req.nextUrl.searchParams.get("ate");
   const hoje = new Date();
   const inicio = inicioParam ? new Date(inicioParam) : new Date(hoje.getFullYear(), hoje.getMonth(), 1);
   const fim = fimParam ? new Date(fimParam) : hoje;

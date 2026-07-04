@@ -11,11 +11,16 @@ import { empresaPorApiKey, respostaErro } from "@/lib/auth/guard";
 export async function GET(req: NextRequest) {
   try {
     const empresa = await empresaPorApiKey(req);
-    const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 5000), 10000);
-    const offset = Math.max(Number(req.nextUrl.searchParams.get("offset") ?? 0), 0);
+    // Number(...) || fallback também cobre NaN ("limit=abc") e 0.
+    const limit = Math.min(
+      Math.max(Number(req.nextUrl.searchParams.get("limit")) || 5000, 1),
+      10000,
+    );
+    const offset = Math.max(Number(req.nextUrl.searchParams.get("offset")) || 0, 0);
 
+    const where = { empresaId: empresa.id, ativo: true } as const;
     const produtos = await prisma.produto.findMany({
-      where: { empresaId: empresa.id, ativo: true },
+      where,
       include: {
         marca: { select: { nome: true } },
         estoques: { select: { quantidade: true } },
@@ -64,7 +69,8 @@ export async function GET(req: NextRequest) {
         .join(" | "),
     }));
 
-    return NextResponse.json({ products, total: products.length, offset });
+    const total = await prisma.produto.count({ where });
+    return NextResponse.json({ products, count: products.length, total, offset });
   } catch (e) {
     return respostaErro(e);
   }

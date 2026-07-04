@@ -14,7 +14,11 @@ const transferenciaSchema = z.object({
   produtoId: z.string().min(1),
   origemDepositoId: z.string().min(1),
   destinoDepositoId: z.string().min(1),
-  quantidade: z.number().positive("Quantidade deve ser maior que zero"),
+  quantidade: z
+    .number()
+    .finite()
+    .min(0.001, "Quantidade mínima é 0,001")
+    .max(99999999, "Quantidade acima do limite permitido"),
   observacao: z.string().max(500).optional(),
 });
 
@@ -50,20 +54,26 @@ export const POST = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
     const saldo = await tx.estoqueDeposito.findUnique({
       where: { produtoId_depositoId: { produtoId: produto.id, depositoId: origem.id } },
     });
-    const disponivel = saldo
-      ? saldo.quantidade.minus(saldo.reservado)
-      : new Prisma.Decimal(0);
-    if (disponivel.lt(qtd)) {
+    const reservado = saldo ? saldo.reservado : new Prisma.Decimal(0);
+    const disponivel = saldo ? saldo.quantidade.minus(reservado) : new Prisma.Decimal(0);
+
+    // Débito CONDICIONAL: só decrementa se quantidade >= qtd + reservado
+    // (disponível = quantidade − reservado). Evita corrida que deixaria o
+    // estoque negativo entre a leitura do saldo e o update.
+    const debitado = await tx.estoqueDeposito.updateMany({
+      where: {
+        produtoId: produto.id,
+        depositoId: origem.id,
+        quantidade: { gte: qtd.plus(reservado) },
+      },
+      data: { quantidade: { decrement: qtd } },
+    });
+    if (debitado.count !== 1) {
       throw new ApiError(
         400,
         `Saldo disponível insuficiente em ${origem.nome} (disponível: ${disponivel.toString()})`,
       );
     }
-
-    await tx.estoqueDeposito.update({
-      where: { produtoId_depositoId: { produtoId: produto.id, depositoId: origem.id } },
-      data: { quantidade: { decrement: qtd } },
-    });
     await tx.estoqueDeposito.upsert({
       where: { produtoId_depositoId: { produtoId: produto.id, depositoId: destino.id } },
       create: { produtoId: produto.id, depositoId: destino.id, quantidade: qtd },

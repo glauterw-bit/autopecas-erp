@@ -49,11 +49,31 @@ export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
   const body = baixaSchema.parse(await req.json());
   const data = body.data ? new Date(body.data) : new Date();
+
+  // Conta bancária do body precisa pertencer à empresa do usuário.
+  if (body.contaBancariaId) {
+    const contaBancaria = await prisma.contaBancaria.findFirst({
+      where: { id: body.contaBancariaId, empresaId },
+      select: { id: true },
+    });
+    if (!contaBancaria) throw new ApiError(404, "Conta bancária não encontrada");
+  }
+
   if (body.tipo === "receber") {
-    const c = await prisma.contaReceber.findFirst({ where: { id: body.id, empresaId } });
+    const c = await prisma.contaReceber.findFirst({
+      where: { id: body.id, empresaId },
+      include: {
+        venda: {
+          select: { clienteId: true, pagamentos: { select: { formaPagamento: true } } },
+        },
+      },
+    });
     if (!c) throw new ApiError(404, "Conta a receber não encontrada");
     const novo = Number(c.valorRecebido) + body.valor;
-    const status = novo >= Number(c.valor) ? "PAGO" : "PARCIALMENTE_PAGO";
+    // Mesmo alvo do webhook Pix: valor + juros + multa − desconto.
+    const alvo =
+      Number(c.valor) + Number(c.juros) + Number(c.multa) - Number(c.desconto);
+    const status = novo >= alvo - 0.005 ? "PAGO" : "PARCIALMENTE_PAGO";
     const out = await prisma.contaReceber.update({
       where: { id: c.id },
       data: {
@@ -73,12 +93,32 @@ export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
         data,
       },
     });
+
+    // Crediário: baixa da parcela devolve limite ao cliente (clamp em 0).
+    const clienteId = c.clienteId ?? c.venda?.clienteId;
+    const ehCrediario =
+      c.formaPagamento === "CREDIARIO" ||
+      c.venda?.pagamentos.some((pg) => pg.formaPagamento === "CREDIARIO");
+    if (clienteId && ehCrediario) {
+      const upd = await prisma.cliente.updateMany({
+        where: { id: clienteId, saldoDevedor: { gte: body.valor } },
+        data: { saldoDevedor: { decrement: body.valor } },
+      });
+      if (upd.count === 0) {
+        await prisma.cliente.updateMany({
+          where: { id: clienteId },
+          data: { saldoDevedor: 0 },
+        });
+      }
+    }
     return NextResponse.json(out);
   } else {
     const c = await prisma.contaPagar.findFirst({ where: { id: body.id, empresaId } });
     if (!c) throw new ApiError(404, "Conta a pagar não encontrada");
     const novo = Number(c.valorPago) + body.valor;
-    const status = novo >= Number(c.valor) ? "PAGO" : "PARCIALMENTE_PAGO";
+    const alvo =
+      Number(c.valor) + Number(c.juros) + Number(c.multa) - Number(c.desconto);
+    const status = novo >= alvo - 0.005 ? "PAGO" : "PARCIALMENTE_PAGO";
     const out = await prisma.contaPagar.update({
       where: { id: c.id },
       data: {

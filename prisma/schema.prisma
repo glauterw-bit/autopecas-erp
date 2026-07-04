@@ -942,9 +942,9 @@ model Venda {
   contasReceber ContaReceber[]
 
   @@unique([empresaId, numero])
+  @@unique([empresaId, externoId])
   @@index([empresaId, status])
   @@index([empresaId, criadaEm])
-  @@index([empresaId, externoId])
   @@map("vendas")
 }
 

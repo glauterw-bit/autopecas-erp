@@ -35,16 +35,27 @@ export const POST = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
   if (!deposito) throw new ApiError(404, "Depósito não encontrado");
 
   const filtro = body.filtro;
-  const estoques = await prisma.estoqueDeposito.findMany({
-    where: {
-      depositoId: deposito.id,
-      produto: {
-        empresaId,
-        ...(filtro?.categoriaId ? { categoriaId: filtro.categoriaId } : {}),
-        ...(filtro?.curva ? { curva: filtro.curva } : {}),
-        ...(filtro?.produtoIds ? { id: { in: filtro.produtoIds } } : {}),
-      },
+  const whereEstoques = {
+    depositoId: deposito.id,
+    produto: {
+      empresaId,
+      ...(filtro?.categoriaId ? { categoriaId: filtro.categoriaId } : {}),
+      ...(filtro?.curva ? { curva: filtro.curva } : {}),
+      ...(filtro?.produtoIds ? { id: { in: filtro.produtoIds } } : {}),
     },
+  };
+
+  // Sem truncamento silencioso: acima do limite, exigir filtro mais específico.
+  const total = await prisma.estoqueDeposito.count({ where: whereEstoques });
+  if (total > MAX_ITENS) {
+    throw new ApiError(
+      400,
+      `O filtro resultou em ${total} produtos (máximo: ${MAX_ITENS}). Use um filtro mais específico (categoria ou curva ABC).`,
+    );
+  }
+
+  const estoques = await prisma.estoqueDeposito.findMany({
+    where: whereEstoques,
     select: { produtoId: true, quantidade: true },
     orderBy: { produtoId: "asc" },
     take: MAX_ITENS,

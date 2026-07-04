@@ -12,7 +12,7 @@ import { comAuth, ApiError } from "@/lib/auth/guard";
 const postSchema = z.object({
   descricaoBuscada: z.string().min(1, "Descreva o que o cliente buscava").max(300),
   produtoId: z.string().optional(),
-  quantidade: z.number().positive().optional(),
+  quantidade: z.number().positive().max(99999).optional(),
   motivo: z
     .enum(["SEM_ESTOQUE", "PRECO", "PRAZO_ENTREGA", "NAO_TRABALHAMOS", "OUTRO"])
     .optional(),

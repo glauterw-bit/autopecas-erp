@@ -19,7 +19,11 @@ const putSchema = z
       .array(
         z.object({
           produtoId: z.string().min(1),
-          qtdContada: z.number().min(0, "qtdContada não pode ser negativa"),
+          qtdContada: z
+            .number()
+            .min(0, "qtdContada não pode ser negativa")
+            .finite()
+            .max(99999999, "qtdContada acima do limite permitido"),
         }),
       )
       .min(1)

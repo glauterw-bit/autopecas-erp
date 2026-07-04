@@ -27,17 +27,39 @@ export const POST = comAuth("CAIXA", async (req, _ctx, usuario) => {
   if (body.vendaId) {
     const venda = await prisma.venda.findFirst({
       where: { id: body.vendaId, empresaId },
-      select: { id: true },
+      select: {
+        id: true,
+        contasReceber: {
+          where: {
+            empresaId,
+            documento: null,
+            // Nunca carimbar parcelas de crediário/boleto: o webhook Pix
+            // baixaria uma parcela que o cliente ainda vai pagar por outro meio.
+            formaPagamento: "PIX",
+            status: { in: ["ABERTO", "PARCIALMENTE_PAGO", "ATRASADO"] },
+          },
+          orderBy: { dataVencimento: "asc" },
+          select: { id: true, valor: true, valorRecebido: true },
+        },
+      },
     });
     if (venda) {
       await prisma.pagamentoVenda.updateMany({
         where: { vendaId: venda.id, formaPagamento: "PIX", nsuAutorizacao: null },
         data: { nsuAutorizacao: txid },
       });
-      await prisma.contaReceber.updateMany({
-        where: { vendaId: venda.id, empresaId, documento: null },
-        data: { documento: txid },
-      });
+      // Carimba UMA conta PIX em aberto: preferindo a de valor compatível
+      // (tolerância 1%) com a cobrança; senão, a primeira a vencer.
+      const compativel = venda.contasReceber.find(
+        (cr) => Math.abs(Number(cr.valor) - Number(cr.valorRecebido) - body.valor) <= body.valor * 0.01,
+      );
+      const alvo = compativel ?? venda.contasReceber[0];
+      if (alvo) {
+        await prisma.contaReceber.updateMany({
+          where: { id: alvo.id, documento: null },
+          data: { documento: txid },
+        });
+      }
     }
   }
 

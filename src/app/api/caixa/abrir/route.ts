@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
 import { sessaoAbertaDoUsuario, serializarSessao } from "../_lib";
@@ -45,9 +46,18 @@ export const POST = comAuth("CAIXA", async (req, _ctx, usuario) => {
     });
   }
 
-  await prisma.sessaoCaixa.create({
-    data: { caixaId: caixa.id, usuarioId: usuario.id, valorAbertura },
-  });
+  try {
+    await prisma.sessaoCaixa.create({
+      data: { caixaId: caixa.id, usuarioId: usuario.id, valorAbertura },
+    });
+  } catch (e) {
+    // Índice único parcial sessoes_caixa(usuarioId) WHERE fechadaEm IS NULL:
+    // abertura concorrente estoura P2002 — o check acima é só fast-path.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      throw new ApiError(400, "Você já tem uma sessão de caixa aberta");
+    }
+    throw e;
+  }
 
   const sessao = await sessaoAbertaDoUsuario(usuario);
   return NextResponse.json({ sessao: serializarSessao(sessao!) }, { status: 201 });

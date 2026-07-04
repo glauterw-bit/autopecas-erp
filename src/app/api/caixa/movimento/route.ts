@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
-import { arred2, exigirSessaoAberta, sessaoAbertaDoUsuario } from "../_lib";
+import { arred2, esperadoDinheiro, exigirSessaoAberta, sessaoAbertaDoUsuario } from "../_lib";
 
 // POST /api/caixa/movimento — registra sangria ou suprimento (em dinheiro)
 // na sessão aberta do usuário logado.
@@ -23,6 +23,17 @@ export const POST = comAuth("CAIXA", async (req, _ctx, usuario) => {
   // Sangria acima de R$ 0 sempre exige justificativa
   if (body.tipo === "SANGRIA" && body.valor > 0 && !body.descricao) {
     throw new ApiError(400, "Sangria exige uma descrição (motivo da retirada)");
+  }
+
+  // Sangria não pode retirar mais do que há em dinheiro no caixa
+  if (body.tipo === "SANGRIA") {
+    const emCaixa = await esperadoDinheiro(sessao, usuario);
+    if (arred2(body.valor) > emCaixa) {
+      throw new ApiError(
+        422,
+        `Sangria maior que o dinheiro em caixa (disponível: R$ ${emCaixa.toFixed(2)})`,
+      );
+    }
   }
 
   const movimento = await prisma.movimentoCaixa.create({

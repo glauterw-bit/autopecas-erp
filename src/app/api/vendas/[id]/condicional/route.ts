@@ -7,6 +7,7 @@ import {
   totalCrediario,
   validarCrediario,
   criarContasReceberParceladas,
+  consumirLimiteCrediario,
 } from "@/lib/vendas/crediario";
 
 // Fechamento de venda CONDICIONAL
@@ -64,6 +65,28 @@ export const POST = comAuth<Ctx>("VENDEDOR", async (req, ctx, usuario) => {
     const valorCrediario = totalCrediario(body.pagamentos);
     if (valorCrediario > 0) validarCrediario(venda.cliente, valorCrediario);
 
+    // A2: a condicional só vira VENDA PAGA se os pagamentos cobrirem o total
+    // (CREDIARIO conta como cobertura — é a modalidade a prazo).
+    const somaPagamentos = body.pagamentos.reduce((a, p) => a + p.valor, 0);
+    const totalVenda = Number(venda.valorTotal);
+    if (Math.abs(somaPagamentos - totalVenda) > 0.01) {
+      throw new ApiError(
+        422,
+        `Pagamentos (R$ ${somaPagamentos.toFixed(2)}) não cobrem o total da venda (R$ ${totalVenda.toFixed(2)}).`,
+      );
+    }
+
+    // Sessão de caixa aberta do usuário: carimba o vínculo venda↔sessão.
+    const sessaoCaixa = await prisma.sessaoCaixa.findFirst({
+      where: {
+        usuarioId: usuario.id,
+        fechadaEm: null,
+        caixa: { filial: { empresaId: usuario.empresaId } },
+      },
+      orderBy: { abertaEm: "asc" },
+      select: { id: true },
+    });
+
     const atualizada = await prisma.$transaction(async (tx) => {
       const v = await tx.venda.update({
         where: { id: venda.id },
@@ -71,6 +94,7 @@ export const POST = comAuth<Ctx>("VENDEDOR", async (req, ctx, usuario) => {
           tipo: "VENDA",
           status: "PAGA",
           fechadaEm: new Date(),
+          ...(sessaoCaixa ? { sessaoCaixaId: sessaoCaixa.id } : {}),
           pagamentos: {
             create: body.pagamentos.map((p) => ({
               formaPagamento: p.formaPagamento,
@@ -91,11 +115,9 @@ export const POST = comAuth<Ctx>("VENDEDOR", async (req, ctx, usuario) => {
         pagamentos: body.pagamentos,
       });
 
+      // C3: incremento condicional + revalidação do limite dentro da transação.
       if (valorCrediario > 0 && venda.clienteId) {
-        await tx.cliente.update({
-          where: { id: venda.clienteId },
-          data: { saldoDevedor: { increment: valorCrediario } },
-        });
+        await consumirLimiteCrediario(tx, venda.clienteId, valorCrediario);
       }
 
       return v;
@@ -137,46 +159,84 @@ export const POST = comAuth<Ctx>("VENDEDOR", async (req, ctx, usuario) => {
   const depositoPorProduto = new Map(saidas.map((m) => [m.produtoId, m.depositoId]));
 
   const atualizada = await prisma.$transaction(async (tx) => {
+    // B2: decremento condicional — duas devoluções concorrentes do mesmo item
+    // não podem estornar em dobro. Se a quantidade já foi devolvida por outra
+    // requisição, count === 0 e a transação aborta com 409.
+    for (const [itemVendaId, devolver] of devolucoes) {
+      const upd = await tx.itemVenda.updateMany({
+        where: { id: itemVendaId, vendaId: venda.id, quantidade: { gte: devolver } },
+        data: { quantidade: { decrement: devolver } },
+      });
+      if (upd.count === 0) {
+        throw new ApiError(409, "quantidade já devolvida");
+      }
+    }
+
+    // Estorno de estoque. B3: sem SAIDA registrada (venda antiga com baixa
+    // pulada), estorna via upsert no primeiro depósito da empresa.
+    let depositoFallbackId: string | null | undefined;
+    for (const [itemVendaId, devolver] of devolucoes) {
+      const item = venda.itens.find((i) => i.id === itemVendaId)!;
+      let depositoId = depositoPorProduto.get(item.produtoId);
+      if (!depositoId) {
+        if (depositoFallbackId === undefined) {
+          const dep = await tx.deposito.findFirst({
+            where: { empresaId: venda.empresaId, ativo: true },
+            select: { id: true },
+          });
+          depositoFallbackId = dep?.id ?? null;
+        }
+        depositoId = depositoFallbackId ?? undefined;
+      }
+      if (!depositoId) continue; // empresa sem nenhum depósito cadastrado
+      await tx.estoqueDeposito.upsert({
+        where: { produtoId_depositoId: { produtoId: item.produtoId, depositoId } },
+        update: { quantidade: { increment: devolver } },
+        create: { produtoId: item.produtoId, depositoId, quantidade: devolver },
+      });
+      await tx.movimentoEstoque.create({
+        data: {
+          produtoId: item.produtoId,
+          depositoId,
+          tipo: "ENTRADA",
+          quantidade: devolver,
+          custoUnitario: item.custoUnitario,
+          origemTipo: "CONDICIONAL_DEVOLUCAO",
+          origemId: venda.id,
+          documento: `Devolução condicional #${venda.numero}`,
+        },
+      });
+    }
+
+    // Recalcula totais a partir dos itens RELIDOS dentro da transação.
+    const itensAtuais = await tx.itemVenda.findMany({ where: { vendaId: venda.id } });
+
+    // A1: venda.valorDesconto = descontoGeral + descontos de item; recupera o
+    // geral subtraindo os descontos de item originais.
+    const descontoItensOriginais = venda.itens.reduce((a, i) => a + Number(i.desconto), 0);
+    const descontoGeral = Math.max(0, Number(venda.valorDesconto) - descontoItensOriginais);
+
     let valorBruto = 0;
     let custoTotal = 0;
+    let descontoItens = 0;
     let tudoDevolvido = true;
 
-    for (const item of venda.itens) {
-      const devolver = devolucoes.get(item.id) ?? 0;
-      const qtdAtual = Number(item.quantidade);
-      const novaQtd = Math.max(0, qtdAtual - devolver);
+    for (const item of itensAtuais) {
+      const novaQtd = Number(item.quantidade);
+      const devolvidoAgora = devolucoes.get(item.id) ?? 0;
+      const preco = Number(item.precoUnitario);
+      const custo = Number(item.custoUnitario);
+      let desconto = Number(item.desconto);
 
-      if (devolver > 0) {
-        // estorno de estoque
-        const depositoId = depositoPorProduto.get(item.produtoId);
-        if (depositoId) {
-          await tx.estoqueDeposito.upsert({
-            where: { produtoId_depositoId: { produtoId: item.produtoId, depositoId } },
-            update: { quantidade: { increment: devolver } },
-            create: { produtoId: item.produtoId, depositoId, quantidade: devolver },
-          });
-          await tx.movimentoEstoque.create({
-            data: {
-              produtoId: item.produtoId,
-              depositoId,
-              tipo: "ENTRADA",
-              quantidade: devolver,
-              custoUnitario: item.custoUnitario,
-              origemTipo: "CONDICIONAL_DEVOLUCAO",
-              origemId: venda.id,
-              documento: `Devolução condicional #${venda.numero}`,
-            },
-          });
-        }
-
-        const preco = Number(item.precoUnitario);
-        const custo = Number(item.custoUnitario);
-        const desconto = novaQtd > 0 ? Number(item.desconto) : 0;
+      if (devolvidoAgora > 0) {
+        // B5: rateia o desconto do item pela quantidade que permaneceu.
+        const qtdAntes = novaQtd + devolvidoAgora;
+        desconto =
+          qtdAntes > 0 ? Number(((desconto * novaQtd) / qtdAntes).toFixed(2)) : 0;
         const novoTotal = Math.max(0, preco * novaQtd - desconto);
         await tx.itemVenda.update({
           where: { id: item.id },
           data: {
-            quantidade: novaQtd,
             desconto,
             total: novoTotal,
             margem: novoTotal - custo * novaQtd,
@@ -184,14 +244,14 @@ export const POST = comAuth<Ctx>("VENDEDOR", async (req, ctx, usuario) => {
         });
       }
 
-      if (novaQtd > 0) {
-        tudoDevolvido = false;
-        valorBruto += Number(item.precoUnitario) * novaQtd;
-        custoTotal += Number(item.custoUnitario) * novaQtd;
-      }
+      if (novaQtd > 0) tudoDevolvido = false;
+      valorBruto += preco * novaQtd;
+      custoTotal += custo * novaQtd;
+      descontoItens += desconto;
     }
 
-    const valorDesconto = tudoDevolvido ? 0 : Number(venda.valorDesconto);
+    // A1: total desconta o desconto (rateado) dos itens + o desconto geral.
+    const valorDesconto = tudoDevolvido ? 0 : descontoGeral + descontoItens;
     const valorTotal = Math.max(0, valorBruto - valorDesconto);
     return tx.venda.update({
       where: { id: venda.id },

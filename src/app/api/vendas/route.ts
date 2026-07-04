@@ -13,8 +13,9 @@ import {
   totalCrediario,
   validarCrediario,
   criarContasReceberParceladas,
+  consumirLimiteCrediario,
 } from "@/lib/vendas/crediario";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 const itemSchema = z.object({
   produtoId: z.string(),
@@ -99,6 +100,8 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
   let valorBruto = 0;
   let custoTotal = 0;
   let descontoItens = 0;
+  let valorBrutoCatalogo = 0;
+  let descontoEfetivoItens = 0;
   const promocoesAplicadas: Array<
     PromocaoVigente & { precoEnviado: number }
   > = [];
@@ -114,14 +117,36 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
       precoUnitario = promo.precoPromocional;
     }
 
+    // E1: a base da trava de desconto é o preço de CATÁLOGO (promocional
+    // vigente ?? precoVenda), nunca o preço enviado pelo cliente — senão a
+    // trava é contornável baixando o precoUnitario. Preço enviado acima do
+    // catálogo não gera desconto negativo (clamp em 0).
+    const precoCatalogo =
+      promo && promo.precoPromocional > 0
+        ? promo.precoPromocional
+        : p.precoPromocional && Number(p.precoPromocional) > 0
+          ? Number(p.precoPromocional)
+          : Number(p.precoVenda);
+    valorBrutoCatalogo += precoCatalogo * it.quantidade;
+    descontoEfetivoItens +=
+      Math.max(0, precoCatalogo - precoUnitario) * it.quantidade + it.desconto;
+
     // Preço mínimo: abaixo dele, só GERENTE ou acima.
+    // E2: se o preço efetivo é EXATAMENTE o promocional vigente aplicado
+    // pelo servidor, a promoção não pode bloquear o vendedor.
     const precoEfetivo = precoUnitario - (it.quantidade > 0 ? it.desconto / it.quantidade : 0);
-    validarPrecoMinimoItem({
-      perfil: usuario.perfil,
-      produtoNome: p.nome,
-      precoEfetivo,
-      precoMinimo: p.precoMinimo ? Number(p.precoMinimo) : null,
-    });
+    const precoEhPromocionalVigente =
+      !!promo &&
+      promo.precoPromocional > 0 &&
+      Math.abs(precoEfetivo - promo.precoPromocional) <= 0.005;
+    if (!precoEhPromocionalVigente) {
+      validarPrecoMinimoItem({
+        perfil: usuario.perfil,
+        produtoNome: p.nome,
+        precoEfetivo,
+        precoMinimo: p.precoMinimo ? Number(p.precoMinimo) : null,
+      });
+    }
 
     const total = precoUnitario * it.quantidade - it.desconto;
     valorBruto += precoUnitario * it.quantidade;
@@ -145,102 +170,214 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
     };
   });
 
-  // Trava de desconto por perfil: desconto total (geral + itens) sobre o bruto.
+  // Trava de desconto por perfil (E1): desconto efetivo (diferença para o
+  // preço de catálogo + descontos de item + geral) sobre o bruto de catálogo.
   validarDescontoTotal({
     perfil: usuario.perfil,
-    valorBruto,
-    descontoTotal: body.descontoGeral + descontoItens,
+    valorBruto: valorBrutoCatalogo,
+    descontoTotal: body.descontoGeral + descontoEfetivoItens,
   });
 
-  const valorTotal = valorBruto - body.descontoGeral;
-  const numero = await proximoNumeroVenda(empresaId);
+  // A1: o total desconta TAMBÉM os descontos de item, não só o geral.
+  const valorDesconto = body.descontoGeral + descontoItens;
+  const valorTotal = valorBruto - valorDesconto;
+
+  // A2/A3: uma VENDA só nasce PAGA se os pagamentos cobrirem exatamente o
+  // total (CREDIARIO conta como cobertura — é a modalidade a prazo). Quando a
+  // promoção reduziu o total depois do PDV cotar, devolvemos o novo total e
+  // as promoções aplicadas para o cliente recotar.
+  if (body.tipo === "VENDA") {
+    const somaPagamentos = body.pagamentos.reduce((a, p) => a + p.valor, 0);
+    if (Math.abs(somaPagamentos - valorTotal) > 0.01) {
+      return NextResponse.json(
+        {
+          erro: `Pagamentos (R$ ${somaPagamentos.toFixed(2)}) não cobrem o total da venda (R$ ${valorTotal.toFixed(2)}).`,
+          valorTotal,
+          promocoes: promocoesAplicadas,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   const ehCondicional = body.tipo === "CONDICIONAL";
   const baixaEstoque = body.tipo === "VENDA" || ehCondicional;
   const condicionalRetornoEm = ehCondicional
     ? new Date(Date.now() + (body.diasRetorno ?? 7) * 24 * 3600 * 1000)
     : null;
 
-  const venda = await prisma.$transaction(async (tx) => {
-    const v = await tx.venda.create({
-      data: {
-        empresaId,
-        vendedorId: usuario.id,
-        clienteId: body.clienteId ?? null,
-        veiculoPlaca: body.veiculoPlaca ?? null,
-        tipo: body.tipo,
-        origem: body.origem,
-        status: body.tipo === "ORCAMENTO" || ehCondicional ? "ABERTA" : "PAGA",
-        numero,
-        condicionalRetornoEm,
-        valorBruto,
-        valorDesconto: body.descontoGeral,
-        valorTotal,
-        custoTotal,
-        margemBruta: valorTotal - custoTotal,
-        margemPercent: valorTotal > 0 ? (valorTotal - custoTotal) / valorTotal : 0,
-        observacoes: body.observacoes,
-        itens: { create: itensPayload },
-        pagamentos: {
-          create: body.pagamentos.map((p) => ({
-            formaPagamento: p.formaPagamento,
-            valor: p.valor,
-            parcelas: p.parcelas,
-            bandeira: p.bandeira,
-          })),
-        },
-      },
-      include: { itens: true, pagamentos: true },
-    });
-
-    // baixa de estoque (venda normal e condicional; orçamento não baixa)
-    if (baixaEstoque) {
-      for (const it of body.itens) {
-        const p = byId.get(it.produtoId)!;
-        const dep = p.estoques.find((e) => Number(e.quantidade) >= it.quantidade) ?? p.estoques[0];
-        if (!dep) continue;
-        await tx.estoqueDeposito.update({
-          where: { id: dep.id },
-          data: { quantidade: { decrement: it.quantidade } },
-        });
-        await tx.movimentoEstoque.create({
-          data: {
-            produtoId: it.produtoId,
-            depositoId: dep.depositoId,
-            tipo: "SAIDA",
-            quantidade: it.quantidade,
-            custoUnitario: Number(p.custoMedio),
-            origemTipo: ehCondicional ? "CONDICIONAL" : "VENDA",
-            origemId: v.id,
-            documento: `${ehCondicional ? "Condicional" : "Venda"} #${numero}`,
+  // Sessão de caixa aberta do usuário: carimba o vínculo venda↔sessão.
+  const sessaoCaixa =
+    body.tipo === "VENDA"
+      ? await prisma.sessaoCaixa.findFirst({
+          where: {
+            usuarioId: usuario.id,
+            fechadaEm: null,
+            caixa: { filial: { empresaId: usuario.empresaId } },
           },
-        });
-      }
-    }
+          orderBy: { abertaEm: "asc" },
+          select: { id: true },
+        })
+      : null;
 
-    if (body.tipo === "VENDA") {
-      // contas a receber por pagamento parcelado
-      await criarContasReceberParceladas(tx, {
-        empresaId,
-        clienteId: body.clienteId ?? null,
-        vendaId: v.id,
-        numeroVenda: numero,
-        pagamentos: body.pagamentos,
+  // A4: o número da venda é calculado fora de lock — sob concorrência o
+  // unique (empresaId, numero) pode estourar P2002. Recalcula e re-tenta
+  // até 3 vezes, apenas quando o conflito for do campo `numero`.
+  let venda: Prisma.VendaGetPayload<{ include: { itens: true; pagamentos: true } }> | null =
+    null;
+  for (let tentativa = 1; tentativa <= 3 && !venda; tentativa++) {
+    const numero = await proximoNumeroVenda(empresaId);
+    try {
+      venda = await prisma.$transaction(async (tx) => {
+        const v = await tx.venda.create({
+          data: {
+            empresaId,
+            vendedorId: usuario.id,
+            clienteId: body.clienteId ?? null,
+            veiculoPlaca: body.veiculoPlaca ?? null,
+            tipo: body.tipo,
+            origem: body.origem,
+            status: body.tipo === "ORCAMENTO" || ehCondicional ? "ABERTA" : "PAGA",
+            numero,
+            sessaoCaixaId: sessaoCaixa?.id ?? null,
+            condicionalRetornoEm,
+            valorBruto,
+            valorDesconto,
+            valorTotal,
+            custoTotal,
+            margemBruta: valorTotal - custoTotal,
+            margemPercent: valorTotal > 0 ? (valorTotal - custoTotal) / valorTotal : 0,
+            observacoes: body.observacoes,
+            itens: { create: itensPayload },
+            pagamentos: {
+              create: body.pagamentos.map((p) => ({
+                formaPagamento: p.formaPagamento,
+                valor: p.valor,
+                parcelas: p.parcelas,
+                bandeira: p.bandeira,
+              })),
+            },
+          },
+          include: { itens: true, pagamentos: true },
+        });
+
+        // baixa de estoque (venda normal e condicional; orçamento não baixa)
+        // B3: nunca pula a baixa em silêncio — sem saldo suficiente, ou o
+        // produto permite venda sem estoque (linha pode ficar negativa) ou
+        // a venda é recusada com 422.
+        if (baixaEstoque) {
+          let depositoFallbackId: string | null = null;
+          for (const it of body.itens) {
+            const p = byId.get(it.produtoId)!;
+            const dep = p.estoques.find((e) => Number(e.quantidade) >= it.quantidade);
+            let depositoId: string;
+            if (dep) {
+              depositoId = dep.depositoId;
+              await tx.estoqueDeposito.update({
+                where: { id: dep.id },
+                data: { quantidade: { decrement: it.quantidade } },
+              });
+            } else if (p.permiteVendaSemEstoque) {
+              // Sem saldo suficiente: decrementa a linha existente (fica
+              // negativa) ou faz upsert no primeiro depósito da empresa.
+              const existente = p.estoques[0];
+              if (existente) {
+                depositoId = existente.depositoId;
+                await tx.estoqueDeposito.update({
+                  where: { id: existente.id },
+                  data: { quantidade: { decrement: it.quantidade } },
+                });
+              } else {
+                if (!depositoFallbackId) {
+                  const deposito = await tx.deposito.findFirst({
+                    where: { empresaId, ativo: true },
+                    select: { id: true },
+                  });
+                  if (!deposito) {
+                    throw new ApiError(
+                      422,
+                      `Produto ${p.nome} sem estoque disponível (nenhum depósito cadastrado).`,
+                    );
+                  }
+                  depositoFallbackId = deposito.id;
+                }
+                depositoId = depositoFallbackId;
+                await tx.estoqueDeposito.upsert({
+                  where: {
+                    produtoId_depositoId: { produtoId: it.produtoId, depositoId },
+                  },
+                  update: { quantidade: { decrement: it.quantidade } },
+                  create: {
+                    produtoId: it.produtoId,
+                    depositoId,
+                    quantidade: -it.quantidade,
+                  },
+                });
+              }
+            } else {
+              throw new ApiError(422, `Produto ${p.nome} sem estoque disponível`);
+            }
+            await tx.movimentoEstoque.create({
+              data: {
+                produtoId: it.produtoId,
+                depositoId,
+                tipo: "SAIDA",
+                quantidade: it.quantidade,
+                custoUnitario: Number(p.custoMedio),
+                origemTipo: ehCondicional ? "CONDICIONAL" : "VENDA",
+                origemId: v.id,
+                documento: `${ehCondicional ? "Condicional" : "Venda"} #${numero}`,
+              },
+            });
+          }
+        }
+
+        if (body.tipo === "VENDA") {
+          // contas a receber por pagamento parcelado / crediário / boleto
+          await criarContasReceberParceladas(tx, {
+            empresaId,
+            clienteId: body.clienteId ?? null,
+            vendaId: v.id,
+            numeroVenda: numero,
+            pagamentos: body.pagamentos,
+          });
+
+          // C3: crediário consome limite do cliente de forma atômica — o
+          // incremento é condicional e o limite é revalidado na transação.
+          if (valorCrediario > 0 && cliente) {
+            await consumirLimiteCrediario(tx, cliente.id, valorCrediario);
+          }
+        }
+
+        return v;
       });
-
-      // crediário consome limite do cliente
-      if (valorCrediario > 0 && cliente) {
-        await tx.cliente.update({
-          where: { id: cliente.id },
-          data: { saldoDevedor: { increment: valorCrediario } },
-        });
+    } catch (e) {
+      if (ehConflitoNumeroVenda(e)) {
+        if (tentativa === 3) {
+          throw new ApiError(
+            409,
+            "Não foi possível gerar o número da venda (concorrência). Tente novamente.",
+          );
+        }
+        continue;
       }
+      throw e;
     }
-
-    return v;
-  });
+  }
+  if (!venda) throw new ApiError(500, "Falha ao registrar a venda.");
 
   return NextResponse.json({ ...venda, promocoesAplicadas }, { status: 201 });
 });
+
+/** P2002 do unique (empresaId, numero) — e só dele (existe também unique em externoId). */
+function ehConflitoNumeroVenda(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") {
+    return false;
+  }
+  const target = e.meta?.target;
+  const campos = Array.isArray(target) ? target.map(String) : [String(target ?? "")];
+  return campos.some((c) => c.includes("numero"));
+}
 
 async function proximoNumeroVenda(empresaId: string): Promise<number> {
   const ultima = await prisma.venda.findFirst({

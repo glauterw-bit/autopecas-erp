@@ -12,7 +12,9 @@ function periodoDaQuery(url: URL): { de: Date; ate: Date } {
   const agora = new Date();
   const deStr = url.searchParams.get("de");
   const ateStr = url.searchParams.get("ate");
-  const de = deStr ? new Date(deStr) : new Date(agora.getFullYear(), agora.getMonth(), 1);
+  // Ambos parseados como horário LOCAL (sem "Z"): "AAAA-MM-DD" puro seria
+  // interpretado como UTC e deslocaria a janela em relação ao `ate`.
+  const de = deStr ? new Date(`${deStr}T00:00:00`) : new Date(agora.getFullYear(), agora.getMonth(), 1);
   const ate = ateStr ? new Date(`${ateStr}T23:59:59.999`) : agora;
   if (isNaN(de.getTime()) || isNaN(ate.getTime())) {
     throw new ApiError(400, "Período inválido: use ?de=AAAA-MM-DD&ate=AAAA-MM-DD");
@@ -90,7 +92,8 @@ const schemaGerar = z.object({
 
 export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
   const body = schemaGerar.parse(await req.json());
-  const de = new Date(body.de);
+  // Mesma regra do GET: início e fim do dia em horário local.
+  const de = new Date(`${body.de}T00:00:00`);
   const ate = new Date(`${body.ate}T23:59:59.999`);
   if (isNaN(de.getTime()) || isNaN(ate.getTime())) {
     throw new ApiError(400, "Datas inválidas: use AAAA-MM-DD");

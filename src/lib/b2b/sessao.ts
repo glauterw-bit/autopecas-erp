@@ -62,15 +62,26 @@ export async function clienteAtualB2B() {
 }
 
 export async function loginB2B(cpfCnpj: string, senha: string) {
-  const cliente = await prisma.cliente.findFirst({
+  // O mesmo CPF/CNPJ pode ser cliente de mais de uma loja (unique é por
+  // empresa) — a senha decide EM QUAL cadastro logar, nunca o "primeiro".
+  const candidatos = await prisma.cliente.findMany({
     where: { cpfCnpj: cpfCnpj.replace(/\D/g, "") },
   });
-  if (!cliente) return null;
-  if (cliente.bloqueado) throw new Error("Cliente bloqueado");
-  if (!cliente.b2bAtivo || !cliente.senhaHashB2B) {
+  if (candidatos.length === 0) return null;
+
+  const habilitados = candidatos.filter((c) => c.b2bAtivo && c.senhaHashB2B);
+  if (habilitados.length === 0) {
     throw new Error("Acesso B2B não habilitado. Fale com a loja.");
   }
-  if (!verificarSenha(senha, cliente.senhaHashB2B)) return null;
+
+  const casaram = habilitados.filter((c) => verificarSenha(senha, c.senhaHashB2B!));
+  if (casaram.length === 0) return null;
+  if (casaram.length > 1) {
+    throw new Error("Documento associado a mais de uma loja — contate o suporte");
+  }
+
+  const cliente = casaram[0];
+  if (cliente.bloqueado) throw new Error("Cliente bloqueado");
 
   const c = await cookies();
   c.set(COOKIE, selarSessaoB2B(cliente.id), {

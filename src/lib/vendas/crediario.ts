@@ -62,8 +62,43 @@ export function validarCrediario(
 }
 
 /**
- * Cria contas a receber para pagamentos parcelados (parcelas > 1),
- * com vencimentos a cada 30 dias. Usa a transação corrente.
+ * Consome o limite de crediário do cliente DENTRO da transação corrente,
+ * de forma concorrência-segura: o incremento do saldoDevedor é condicional
+ * (cliente não bloqueado) e o limite é validado após releitura — se estourou,
+ * lança ApiError 422 e a transação reverte o incremento.
+ */
+export async function consumirLimiteCrediario(
+  tx: Prisma.TransactionClient,
+  clienteId: string,
+  valorCrediario: number,
+): Promise<void> {
+  if (valorCrediario <= 0) return;
+  const upd = await tx.cliente.updateMany({
+    where: { id: clienteId, bloqueado: false },
+    data: { saldoDevedor: { increment: valorCrediario } },
+  });
+  if (upd.count === 0) {
+    throw new ApiError(422, "Cliente bloqueado por inadimplência — venda não permitida.");
+  }
+  const cliente = await tx.cliente.findUniqueOrThrow({
+    where: { id: clienteId },
+    select: { saldoDevedor: true, limiteCredito: true },
+  });
+  const saldo = Number(cliente.saldoDevedor);
+  const limite = Number(cliente.limiteCredito);
+  if (saldo > limite + 0.005) {
+    const disponivel = Math.max(0, limite - (saldo - valorCrediario));
+    throw new ApiError(
+      422,
+      `Limite de crédito insuficiente: disponível R$ ${disponivel.toFixed(2)}, crediário solicitado R$ ${valorCrediario.toFixed(2)}.`,
+    );
+  }
+}
+
+/**
+ * Cria contas a receber para pagamentos parcelados (parcelas > 1) e,
+ * para CREDIARIO/BOLETO, também com parcela única (vencimento +30d).
+ * Vencimentos a cada 30 dias. Usa a transação corrente.
  */
 export async function criarContasReceberParceladas(
   tx: Prisma.TransactionClient,
@@ -76,7 +111,9 @@ export async function criarContasReceberParceladas(
   },
 ): Promise<void> {
   for (const p of opts.pagamentos) {
-    if (p.parcelas <= 1) continue;
+    const geraTituloAvista =
+      p.formaPagamento === "CREDIARIO" || p.formaPagamento === "BOLETO";
+    if (p.parcelas <= 1 && !geraTituloAvista) continue;
     const valorParc = Number((p.valor / p.parcelas).toFixed(2));
     for (let i = 0; i < p.parcelas; i++) {
       const venc = new Date();

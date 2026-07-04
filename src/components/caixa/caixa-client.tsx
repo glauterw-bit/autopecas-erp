@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "./modal";
 
-// Estado do caixa vindo de GET /api/caixa?cego=1 (nunca traz o esperado
+// Estado do caixa vindo de GET /api/caixa (nunca traz o esperado
 // enquanto a sessão está aberta — fechamento cego).
 
 type Movimento = {
@@ -73,7 +73,7 @@ export function CaixaClient() {
 
   const recarregar = useCallback(async () => {
     try {
-      const json = await chamarApi("/api/caixa?cego=1");
+      const json = await chamarApi("/api/caixa");
       setSessao(json.sessao);
       setErro(null);
     } catch (e) {

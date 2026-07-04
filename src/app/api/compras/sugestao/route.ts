@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
 
@@ -46,6 +47,8 @@ export const GET = comAuth("ESTOQUISTA", async (_req, _ctx, usuario) => {
         pontoReposicao: true,
         estoques: { select: { quantidade: true } },
         fornecedoresGrade: {
+          // Fornecedor inativo não recebe pedido — fora da grade.
+          where: { fornecedor: { ativo: true } },
           select: {
             fornecedorId: true,
             precoCompra: true,
@@ -82,7 +85,11 @@ export const GET = comAuth("ESTOQUISTA", async (_req, _ctx, usuario) => {
     const limiteReposicao = Math.max(Number(p.pontoReposicao ?? p.estoqueMinimo), 0);
     const perdida30d = demandaPerdida.get(p.id) ?? 0;
 
-    const candidato = estoqueTotal <= limiteReposicao || perdida30d > 0;
+    // Sem parâmetro de reposição e sem demanda perdida, produto zerado não é
+    // candidato — senão a sugestão lista 1un de todo o catálogo sem estoque.
+    const temParametro =
+      Number(p.estoqueMinimo) > 0 || p.pontoReposicao != null || perdida30d > 0;
+    const candidato = temParametro && (estoqueTotal <= limiteReposicao || perdida30d > 0);
     if (!candidato) continue;
 
     const escolhido =
@@ -169,39 +176,66 @@ export const POST = comAuth("GERENTE", async (req, _ctx, usuario) => {
     body.itens.reduce((s, i) => s + i.quantidade * i.precoUnitario, 0),
   );
 
-  const pedido = await prisma.$transaction(async (tx) => {
-    const max = await tx.pedidoCompra.aggregate({
-      where: { empresaId },
-      _max: { numero: true },
-    });
-    const numero = (max._max.numero ?? 0) + 1;
-    return tx.pedidoCompra.create({
-      data: {
-        empresaId,
-        fornecedorId: body.fornecedorId,
-        numero,
-        status: "RASCUNHO",
-        valorBruto,
-        valorTotal: valorBruto,
-        observacoes: "Gerado pela sugestão de compra",
-        itens: {
-          create: body.itens.map((i) => ({
-            produtoId: i.produtoId,
-            quantidade: i.quantidade,
-            custoUnitario: i.precoUnitario,
-            total: arred2(i.quantidade * i.precoUnitario),
-          })),
-        },
-      },
-      select: {
-        id: true,
-        numero: true,
-        status: true,
-        valorTotal: true,
-        itens: { select: { id: true } },
-      },
-    });
-  });
+  // Corrida do `numero` (dois pedidos lendo o mesmo máximo): P2002 no unique
+  // (empresaId, numero) → até 3 tentativas com número relido.
+  let pedido: {
+    id: string;
+    numero: number;
+    status: string;
+    valorTotal: Prisma.Decimal;
+    itens: { id: string }[];
+  } | null = null;
+  for (let tentativa = 1; tentativa <= 3; tentativa++) {
+    try {
+      pedido = await prisma.$transaction(async (tx) => {
+        const max = await tx.pedidoCompra.aggregate({
+          where: { empresaId },
+          _max: { numero: true },
+        });
+        const numero = (max._max.numero ?? 0) + 1;
+        return tx.pedidoCompra.create({
+          data: {
+            empresaId,
+            fornecedorId: body.fornecedorId,
+            numero,
+            status: "RASCUNHO",
+            valorBruto,
+            valorTotal: valorBruto,
+            observacoes: "Gerado pela sugestão de compra",
+            itens: {
+              create: body.itens.map((i) => ({
+                produtoId: i.produtoId,
+                quantidade: i.quantidade,
+                custoUnitario: i.precoUnitario,
+                total: arred2(i.quantidade * i.precoUnitario),
+              })),
+            },
+          },
+          select: {
+            id: true,
+            numero: true,
+            status: true,
+            valorTotal: true,
+            itens: { select: { id: true } },
+          },
+        });
+      });
+      break;
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002" &&
+        JSON.stringify(e.meta?.target ?? "").includes("numero") &&
+        tentativa < 3
+      ) {
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (!pedido) {
+    throw new ApiError(409, "Não foi possível gerar o número do pedido — tente novamente");
+  }
 
   return NextResponse.json(
     {

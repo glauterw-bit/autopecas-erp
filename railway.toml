@@ -4,7 +4,7 @@ buildCommand = "npm install --legacy-peer-deps --no-audit --no-fund && npm run b
 
 [deploy]
 startCommand = "npm run start"
-healthcheckPath = "/"
+healthcheckPath = "/api/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5

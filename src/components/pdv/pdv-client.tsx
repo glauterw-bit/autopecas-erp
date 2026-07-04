@@ -74,6 +74,9 @@ export function PdvClient() {
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [mostrarPagamento, setMostrarPagamento] = useState(false);
+  // Incrementa para remontar o modal de pagamento (limpa pagamentos parciais)
+  // quando o servidor recota o total por promoção (422 com `promocoes`).
+  const [pagamentoKey, setPagamentoKey] = useState(0);
   const [sucesso, setSucesso] = useState<{ numero: number; tipo: TipoVendaPdv; dias?: number } | null>(null);
   const [selecionado, setSelecionado] = useState(0);
   const [tipoVenda, setTipoVenda] = useState<TipoVendaPdv>("VENDA");
@@ -220,7 +223,37 @@ export function PdvClient() {
           }),
         });
         if (!r.ok) {
-          const j = (await r.json().catch(() => ({}))) as { erro?: string };
+          const j = (await r.json().catch(() => ({}))) as {
+            erro?: string;
+            valorTotal?: number;
+            promocoes?: Array<{
+              produtoId: string;
+              promocaoNome: string;
+              precoPromocional: number;
+            }>;
+          };
+          if (r.status === 422 && j.promocoes?.length) {
+            // Promoção aplicada pelo servidor mudou o total: recota o
+            // carrinho com os preços promocionais e reabre o pagamento.
+            const porProduto = new Map(
+              j.promocoes.map((p) => [p.produtoId, p.precoPromocional]),
+            );
+            setCarrinho((cs) =>
+              cs.map((c) => {
+                const precoPromo = porProduto.get(c.produtoId);
+                return precoPromo !== undefined && precoPromo < c.precoUnitario
+                  ? { ...c, precoUnitario: precoPromo }
+                  : c;
+              }),
+            );
+            setPagamentoKey((k) => k + 1);
+            setMostrarPagamento(true);
+            notificar(
+              "Promoção aplicada pelo servidor: preços do carrinho atualizados. Confira o novo total e refaça o pagamento.",
+              "erro",
+            );
+            throw new Error(j.erro ?? "Total da venda atualizado por promoção.");
+          }
           throw new Error(j.erro ?? "Falha ao registrar venda");
         }
         const venda = (await r.json()) as {
@@ -528,7 +561,7 @@ export function PdvClient() {
       </div>
 
       {mostrarPagamento && (
-        <PaymentModal total={total} erro={erro} onCancel={() => setMostrarPagamento(false)} onConfirm={finalizar} />
+        <PaymentModal key={pagamentoKey} total={total} erro={erro} onCancel={() => setMostrarPagamento(false)} onConfirm={finalizar} />
       )}
 
       {vendaPerdida && (
