@@ -11,7 +11,10 @@ import type { Entidade } from "./tipos";
 const URL = process.env.IMPLANTACAO_TEST_DATABASE_URL;
 
 describe.skipIf(!URL)("importador contra o banco (idempotência)", () => {
-  const db = new PrismaClient({ datasources: { db: { url: URL } } });
+  // O corpo do describe roda na coleta mesmo quando o teste é pulado: sem URL, não cria cliente.
+  const db = URL
+    ? new PrismaClient({ datasources: { db: { url: URL } } })
+    : (undefined as unknown as PrismaClient);
   let empresaId = "";
 
   const csvs: Record<string, string> = {
