@@ -1,6 +1,7 @@
 import axios from "axios";
 import { prisma } from "../db";
 import { ApiError } from "../auth/guard";
+import { registrarNotaEmitida } from "../assinatura/politica";
 import { reaisParaCentavos, centavosParaReais } from "../fiscal/centavos";
 import type { RegimeEmitente } from "../fiscal/st-sp";
 import { configFiscalDaEmpresa, configFocus, FOCUS_BASE } from "./config-focus";
@@ -251,6 +252,8 @@ export async function emitirNotaFiscal(vendaId: string, empresaId?: string) {
   if (st.status === "REJEITADA" || st.status === "DENEGADA") {
     throw new ApiError(422, `A SEFAZ/Focus recusou a nota: ${st.mensagem}`);
   }
+  // Plano: conta a nota do mês (excedente vira cobrança futura; nunca bloqueia a emissão).
+  if (nota.ambiente === "PRODUCAO") await registrarNotaEmitida(prisma, venda.empresaId);
   return nota;
 }
 

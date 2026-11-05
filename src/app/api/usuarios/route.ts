@@ -6,6 +6,7 @@ import { criarTokenConta, urlDoLink } from "@/lib/auth/contas";
 import { SENHA_PENDENTE } from "@/lib/auth/token";
 import { registrarAuditoria } from "@/lib/auth/auditoria";
 import { Prisma } from "@prisma/client";
+import { exigirLimiteUsuarios } from "@/lib/assinatura/politica";
 
 // Usuários da empresa (só ADMIN).
 // GET  → lista
@@ -39,6 +40,7 @@ export const GET = comAuth("ADMIN", async (_req, _ctx, usuario) => {
 
 export const POST = comAuth("ADMIN", async (req, _ctx, usuario) => {
   const body = conviteSchema.parse(await req.json());
+  await exigirLimiteUsuarios(usuario.empresaId);
   try {
     const out = await prisma.$transaction(async (tx) => {
       const novo = await tx.usuario.create({

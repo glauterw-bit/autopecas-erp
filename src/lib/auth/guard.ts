@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { prisma } from "../db";
 import { usuarioDaSessao, podePerfil } from "./config";
+import { aplicarPoliticaAssinatura } from "../assinatura/politica";
 
 // Guard central das rotas de API
 // ==============================
@@ -12,7 +13,11 @@ import { usuarioDaSessao, podePerfil } from "./config";
 // - sanitiza erros: nada de stack do Prisma vazando pro cliente
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    public codigo?: string,
+  ) {
     super(message);
   }
 }
@@ -42,6 +47,8 @@ export function comAuth<C = unknown>(perfilMinimo: string | null, handler: Handl
   return async (req: NextRequest, ctx: C): Promise<Response> => {
     try {
       const usuario = await exigirSessao(perfilMinimo ?? undefined);
+      // Plano e pagamento (módulo fora do plano, somente leitura, suspensão).
+      await aplicarPoliticaAssinatura(req, usuario.empresaId);
       return await handler(req, ctx, usuario);
     } catch (e) {
       return respostaErro(e);
@@ -51,7 +58,10 @@ export function comAuth<C = unknown>(perfilMinimo: string | null, handler: Handl
 
 export function respostaErro(e: unknown): NextResponse {
   if (e instanceof ApiError) {
-    return NextResponse.json({ erro: e.message }, { status: e.status });
+    return NextResponse.json(
+      e.codigo ? { erro: e.message, codigo: e.codigo } : { erro: e.message },
+      { status: e.status },
+    );
   }
   if (e instanceof ZodError) {
     const detalhe = e.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");

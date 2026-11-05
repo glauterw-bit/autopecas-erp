@@ -8,11 +8,13 @@
 //
 // Em produção: railway run npx tsx scripts/nova-empresa.ts -- --razao ...
 //
-// Cria: Empresa + Filial "Matriz" + Depósito "Loja" + usuário ADMIN.
+// Cria: Empresa + Filial "Matriz" + Depósito "Loja" + usuário ADMIN + assinatura
+// (INTERNO ativa; ou período de teste com --trial). Lógica em src/lib/empresas/criar-empresa.ts.
 // Se a senha for omitida, gera uma aleatória e imprime UMA vez.
 
 import crypto from "node:crypto";
 import { PrismaClient } from "@prisma/client";
+import { criarEmpresaComAdmin, ErroCadastro } from "../src/lib/empresas/criar-empresa";
 
 const prisma = new PrismaClient();
 
@@ -21,15 +23,9 @@ function arg(nome: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-function hashSenha(senha: string): string {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.pbkdf2Sync(senha, salt, 100_000, 64, "sha512").toString("hex");
-  return `pbkdf2$100000$${salt}$${hash}`;
-}
-
 async function main() {
   const razao = arg("razao");
-  const cnpj = arg("cnpj")?.replace(/\D/g, "");
+  const cnpj = arg("cnpj")?.toUpperCase().replace(/[^0-9A-Z]/g, "");
   const adminNome = arg("admin-nome");
   const adminEmail = arg("admin-email")?.toLowerCase();
   if (!razao || !cnpj || !adminNome || !adminEmail) {
@@ -59,35 +55,28 @@ async function main() {
     process.exit(1);
   }
 
-  const empresa = await prisma.empresa.create({
-    data: {
+  // Loja implantada à mão: assinatura ATIVA no plano INTERNO (sem limite).
+  // Com --trial, nasce em período de teste como no cadastro self-service.
+  let empresa;
+  try {
+    ({ empresa } = await criarEmpresaComAdmin(prisma, {
       razaoSocial: razao,
       nomeFantasia: arg("fantasia") ?? razao,
       cnpj,
       uf: arg("uf") ?? null,
       regimeTributario: regime,
-      filiais: { create: [{ nome: "Matriz" }] },
-      usuarios: {
-        create: [
-          {
-            nome: adminNome,
-            email: adminEmail,
-            senhaHash: hashSenha(senha),
-            perfil: "ADMIN",
-          },
-        ],
-      },
-    },
-    include: { filiais: true },
-  });
-  await prisma.deposito.create({
-    data: {
-      empresaId: empresa.id,
-      filialId: empresa.filiais[0].id,
-      nome: "Loja",
-      tipo: "LOJA",
-    },
-  });
+      adminNome,
+      adminEmail,
+      adminSenha: senha,
+      assinatura: { tipo: process.argv.includes("--trial") ? "TRIAL" : "INTERNO" },
+    }));
+  } catch (e) {
+    if (e instanceof ErroCadastro) {
+      console.error(e.message);
+      process.exit(1);
+    }
+    throw e;
+  }
 
   console.log("========================================");
   console.log("✓ Empresa criada:", empresa.razaoSocial, `(${empresa.id})`);

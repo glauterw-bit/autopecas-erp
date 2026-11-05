@@ -71,6 +71,9 @@ model Empresa {
   lancamentosContabeis LancamentoContabil[]
   importacoesLote      ImportacaoLote[]
   importacoesChave     ImportacaoChave[]
+  assinatura           Assinatura?
+  aceitesTermos        AceiteTermos[]
+  consumoNotas         ConsumoNotasMes[]
 
   @@map("empresas")
 }
@@ -2065,4 +2068,102 @@ model ImportacaoChave {
   @@unique([empresaId, entidade, chave])
   @@index([entidade, entidadeId])
   @@map("importacao_chaves")
+}
+
+// --- Assinatura do SaaS (cobrança da própria loja pelo AutoPeças ERP) ---------
+// Não confundir com Pix Automático (cobrança que a loja faz ao cliente dela).
+
+enum StatusAssinatura {
+  TRIAL
+  ATIVA
+  INADIMPLENTE
+  SUSPENSA
+  CANCELADA
+}
+
+enum CicloAssinatura {
+  MENSAL
+  ANUAL
+}
+
+// Plano comercial. Limite nulo = sem limite. `modulos` guarda os módulos
+// liberados: MARKETPLACES, IA, B2B, CONTABIL. Preços "provisorio" ainda não
+// foram definidos pelo dono; plano com preço zero não gera cobrança.
+model Plano {
+  id                 String   @id @default(cuid())
+  codigo             String   @unique
+  nome               String
+  descricao          String?
+  precoMensal        Decimal  @default(0) @db.Decimal(12, 2)
+  precoAnual         Decimal  @default(0) @db.Decimal(12, 2)
+  limiteUsuarios     Int?
+  limiteDepositos    Int?
+  limiteNotasMes     Int?
+  limiteProdutos     Int?
+  // Cobrança de excedente/adicionais (provisórios, zerados até o dono definir).
+  precoNotaExcedente Decimal  @default(0) @db.Decimal(12, 2) // por nota acima do limite do mês
+  precoUsuarioExtra  Decimal  @default(0) @db.Decimal(12, 2) // por usuário acima do limite, por mês
+  precoCnpjAdicional Decimal  @default(0) @db.Decimal(12, 2) // por CNPJ/loja adicional, por mês
+  modulos            String[] @default([])
+  publico            Boolean  @default(true) // aparece para a loja escolher
+  provisorio         Boolean  @default(true)
+  ativo              Boolean  @default(true)
+  criadoEm           DateTime @default(now())
+  atualizadoEm       DateTime @updatedAt
+
+  assinaturas Assinatura[]
+
+  @@map("planos")
+}
+
+model Assinatura {
+  id                String           @id @default(cuid())
+  empresaId         String           @unique
+  empresa           Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  planoId           String
+  plano             Plano            @relation(fields: [planoId], references: [id])
+  status            StatusAssinatura @default(TRIAL)
+  ciclo             CicloAssinatura  @default(MENSAL)
+  trialFimEm        DateTime?
+  formaPagamento    String? // BOLETO | PIX | CREDIT_CARD | UNDEFINED
+  asaasClienteId    String?
+  asaasAssinaturaId String?          @unique
+  proximoVencimento DateTime?
+  inadimplenteDesde DateTime?
+  suspensaMotivo    String? // preenchido quando o dono do SaaS suspende à mão
+  canceladaEm       DateTime?
+  criadoEm          DateTime         @default(now())
+  atualizadoEm      DateTime         @updatedAt
+
+  @@index([status])
+  @@map("assinaturas")
+}
+
+// Aceite dos termos de uso e da política de privacidade no cadastro.
+model AceiteTermos {
+  id        String   @id @default(cuid())
+  empresaId String
+  empresa   Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  usuarioId String?
+  versao    String
+  ip        String?
+  aceitoEm  DateTime @default(now())
+
+  @@index([empresaId])
+  @@map("aceites_termos")
+}
+
+// Notas emitidas por mês e quantas passaram do limite do plano (para cobrança
+// futura do excedente). A nota NUNCA é bloqueada por causa do limite.
+model ConsumoNotasMes {
+  id           String   @id @default(cuid())
+  empresaId    String
+  empresa      Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  mes          String // YYYY-MM (horário de Brasília)
+  notas        Int      @default(0)
+  excedentes   Int      @default(0)
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([empresaId, mes])
+  @@map("consumo_notas_mes")
 }
