@@ -73,6 +73,14 @@ async function main() {
     include: { depositos: true },
   });
 
+  // Assinatura da loja demo: ATIVA no plano INTERNO (sem limite). Os planos nascem na migração.
+  const planoInterno = await prisma.plano.upsert({
+    where: { codigo: "INTERNO" },
+    update: {},
+    create: { codigo: "INTERNO", nome: "Interno", publico: false, provisorio: false, modulos: ["MARKETPLACES", "IA", "B2B", "CONTABIL"] },
+  });
+  await prisma.assinatura.create({ data: { empresaId: empresa.id, planoId: planoInterno.id, status: "ATIVA" } });
+
   console.log("→ Catálogo veicular (montadora/modelo/versão)...");
   const montadoras = [
     {

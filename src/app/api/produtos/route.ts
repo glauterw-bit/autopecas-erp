@@ -1,3 +1,4 @@
+import { exigirLimiteProdutos } from "@/lib/assinatura/politica";
 import { registrarAuditoria } from "@/lib/auth/auditoria";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -60,6 +61,7 @@ export const POST = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
   const bruto = await req.json();
   const body = produtoSchema.parse(bruto);
+  await exigirLimiteProdutos(empresaId);
 
   // Dados fiscais mudam a nota: só FINANCEIRO ou acima, também na criação (igual ao PATCH).
   // "Informado" = veio com valor; origem 0 é o padrão e não conta.

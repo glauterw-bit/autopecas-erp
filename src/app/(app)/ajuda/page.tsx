@@ -49,7 +49,7 @@ const PERGUNTAS: { titulo: string; resposta: string }[] = [
 ];
 
 export default async function AjudaPage() {
-  await exigirPerfilPagina("/ajuda", "TECNICO"); // qualquer usuário logado
+  await exigirPerfilPagina("/ajuda", "ESTOQUISTA"); // qualquer usuário logado (ESTOQUISTA é o perfil mais baixo)
   const whats = process.env.SUPORTE_WHATSAPP?.replace(/\D/g, "");
   const email = process.env.SUPORTE_EMAIL;
   const horario = process.env.SUPORTE_HORARIO;

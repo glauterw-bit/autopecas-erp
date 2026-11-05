@@ -34,6 +34,8 @@ jobs:
       DEVOLUCAO_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/autopecas_ci
       IMPLANTACAO_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/autopecas_ci
       MARKETPLACES_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/autopecas_ci
+      LGPD_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/autopecas_ci
+      ASSINATURA_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/autopecas_ci
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:

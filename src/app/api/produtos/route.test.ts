@@ -14,6 +14,8 @@ const db = vi.hoisted(() => {
     tx,
     prisma: {
       produto: { findFirst: vi.fn() },
+      // Plano: sem assinatura cadastrada = sem limite (política não interfere neste teste).
+      assinatura: { findUnique: vi.fn(async () => null) },
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
     },
   };

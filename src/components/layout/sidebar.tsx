@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  LifeBuoy,
   LayoutDashboard,
   ShoppingCart,
   Package,
@@ -119,6 +120,12 @@ export function Sidebar({
             className="flex flex-1 items-center gap-1 rounded-md border px-2 py-1.5 text-foreground hover:bg-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
           >
             <UserCircle className="h-3.5 w-3.5" /> Minha conta
+          </Link>
+          <Link
+            href="/ajuda"
+            className="flex items-center gap-1 rounded-md border px-2 py-1.5 text-foreground hover:bg-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            <LifeBuoy className="h-3.5 w-3.5" /> Ajuda
           </Link>
           <form action="/api/auth/logout" method="post">
             <button

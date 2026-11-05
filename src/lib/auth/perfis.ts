@@ -42,6 +42,8 @@ export const PERFIL_MINIMO_ROTAS: Record<string, string> = {
   "/relatorios": "GERENTE",
   "/configuracoes": "ADMIN",
   "/conta": "ESTOQUISTA",
+  "/ajuda": "ESTOQUISTA",
+  "/onboarding": "ADMIN",
 };
 
 /** Perfil mínimo da rota; rota fora do mapa exige ADMIN (nega por padrão). */
