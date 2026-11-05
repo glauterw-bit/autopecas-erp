@@ -42,6 +42,6 @@ export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
     select: { id: true },
   });
   if (!nota) throw new ApiError(404, "Nota fiscal não encontrada");
-  const out = await cancelarNfse(body.notaId, body.motivo);
+  const out = await cancelarNfse(body.notaId, body.motivo, empresaId);
   return NextResponse.json(out);
 });

@@ -23,6 +23,19 @@ export default async function FiscalPage() {
 
   const operacoes = [
     {
+      icon: ShieldCheck,
+      titulo: "Virada da ST de autopeças (SP)",
+      descricao:
+        "Desde 01/10/2026 autopeças saíram da ST em SP (Portaria SRE 34/2026). Veja os produtos a ajustar e o estoque de 30/09 para o contador (CAT 28/2020).",
+      acao: "GET /api/fiscal/virada-st · GET ?relatorio=estoque · POST { produtoIds }",
+    },
+    {
+      icon: FileX2,
+      titulo: "NF-e de devolução referenciada",
+      descricao: "Devolução de venda com a nota e o item de origem (exigido desde 03/11/2026).",
+      acao: "POST /api/nfe/devolucao { rmaId } ou { vendaId, itens }",
+    },
+    {
       icon: FileX2,
       titulo: "Cancelamento de NF-e",
       descricao: "Até 24h após autorização. Justificativa mínima 15 caracteres.",

@@ -13,6 +13,9 @@
 //     Alíq. nominal / PD = vêm da tabela do anexo
 
 import { prisma } from "../db";
+import { ratear, reaisParaCentavos } from "./centavos";
+import { CSTS_ST_SUBSTITUIDO, ehAutopeca } from "./st-sp";
+import { FIM_ST_AUTOPECAS_SP, inicioDiaBrasilia } from "./vigencias";
 
 export type AnexoSimples = "I" | "II" | "III" | "IV" | "V";
 
@@ -73,6 +76,66 @@ export interface ApuracaoPgdas {
   reparticao: Record<string, number>;  // valor por tributo
   excedeuSublimite: boolean;     // RBT12 > R$ 3.6M (sublimite ICMS)
   excedeuLimite: boolean;        // RBT12 > R$ 4.8M (exclusão)
+  /** Receita segregada (centavos) e DAS calculado com a segregação. */
+  segregacao?: SegregacaoDas;
+}
+
+// Segregação de receitas no PGDAS-D
+// ---------------------------------
+// LC 123/2006, art. 18, § 4º-A, I: a receita de revenda com tributação
+// concentrada (monofásica) ou com ICMS já recolhido por ST é informada
+// separadamente, e o DAS não inclui o percentual desses tributos:
+//   - monofásico (Lei 10.485/2002): tira PIS e COFINS da repartição;
+//   - ST (até 30/09/2026 para autopeças em SP): tira o ICMS.
+// Fontes: https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp123.htm
+//         Solução de Consulta COSIT 204/2019 (citada em
+//         https://tributodevido.com.br/portal/tributacao-pis-cofins-monofasica-autopecas-simples-nacional/)
+// Depois de 01/10/2026 a autopeça em SP não é mais ST: o ICMS volta para o DAS.
+export interface ItemReceitaSimples {
+  valorCentavos: number;
+  monofasico: boolean;
+  st: boolean;
+}
+
+export interface SegregacaoDas {
+  normalCentavos: number;
+  monofasicoCentavos: number;
+  stCentavos: number;
+  monofasicoEStCentavos: number;
+  dasCentavos: number;
+  dasSemSegregarCentavos: number;
+}
+
+export function calcularDasSegregado(opts: {
+  itens: ItemReceitaSimples[];
+  aliqEfetiva: number;               // %
+  reparticao: Record<string, number>; // % de cada tributo dentro da alíquota efetiva
+}): SegregacaoDas {
+  const soma = (f: (i: ItemReceitaSimples) => boolean) =>
+    opts.itens.filter(f).reduce((a, i) => a + i.valorCentavos, 0);
+  const normal = soma((i) => !i.monofasico && !i.st);
+  const mono = soma((i) => i.monofasico && !i.st);
+  const st = soma((i) => !i.monofasico && i.st);
+  const monoSt = soma((i) => i.monofasico && i.st);
+  const pct = (t: string) => opts.reparticao[t] ?? 0;
+  // valor = receita × alíquota efetiva × (1 − % excluídos), arredondado por grupo
+  const das = (receita: number, excluidos: string[]) => {
+    const fator = 1 - excluidos.reduce((a, t) => a + pct(t), 0) / 100;
+    return Math.round((receita * opts.aliqEfetiva * fator) / 100);
+  };
+  const total = normal + mono + st + monoSt;
+  return {
+    normalCentavos: normal,
+    monofasicoCentavos: mono,
+    stCentavos: st,
+    monofasicoEStCentavos: monoSt,
+    dasCentavos:
+      das(normal, []) +
+      das(mono, ["PIS", "COFINS"]) +
+      das(st, ["ICMS"]) +
+      das(monoSt, ["PIS", "COFINS", "ICMS"]),
+    dasSemSegregarCentavos: das(total, []),
+  };
 }
 
 export async function apurarPGDAS(opts: {
@@ -132,6 +195,41 @@ export async function apurarPGDAS(opts: {
 
   // Repartição entre tributos
   const rep = REPARTICAO_ANEXO_I[numeroFaixa] ?? REPARTICAO_ANEXO_I[1];
+
+  // Segregação (monofásico / ST) pelos itens vendidos no mês, proporcional à receita do mês
+  let segregacao: SegregacaoDas | undefined;
+  if (anexo === "I" && receitaBrutaMes > 0) {
+    const itensMes = await prisma.itemVenda.findMany({
+      where: {
+        venda: {
+          empresaId: opts.empresaId,
+          criadaEm: { gte: inicioCompetencia, lte: fimCompetencia },
+          tipo: "VENDA",
+          status: { not: "CANCELADA" },
+        },
+      },
+      select: {
+        total: true,
+        fiscalNota: true,
+        venda: { select: { criadaEm: true } },
+        produto: { select: { monofasicoPisCofins: true, cstIcms: true, cest: true, ncm: true } },
+      },
+    });
+    const fimSt = inicioDiaBrasilia(FIM_ST_AUTOPECAS_SP);
+    const brutos = itensMes.map((i) => reaisParaCentavos(i.total));
+    const ajustados = ratear(reaisParaCentavos(receitaBrutaMes), brutos);
+    const itens: ItemReceitaSimples[] = itensMes.map((i, idx) => {
+      const retrato = (i.fiscalNota ?? {}) as { cstIcms?: string; monofasico?: boolean };
+      const cst = retrato.cstIcms ?? i.produto.cstIcms ?? "";
+      return {
+        valorCentavos: ajustados[idx],
+        monofasico: retrato.monofasico ?? i.produto.monofasicoPisCofins,
+        // autopeça só conta como ST até 30/09/2026; outros itens com ST seguem a regra deles
+        st: CSTS_ST_SUBSTITUIDO.has(cst) && (i.venda.criadaEm < fimSt || !ehAutopeca(i.produto)),
+      };
+    });
+    if (itens.length) segregacao = calcularDasSegregado({ itens, aliqEfetiva: aliqEfetivaSafe, reparticao: rep });
+  }
   const reparticao: Record<string, number> = {};
   for (const [tributo, pct] of Object.entries(rep)) {
     reparticao[tributo] = (valorDevido * pct) / 100;
@@ -147,6 +245,7 @@ export async function apurarPGDAS(opts: {
     aliqEfetiva: aliqEfetivaSafe,
     valorDevido,
     reparticao,
+    segregacao,
     excedeuSublimite: rbt12 > 3_600_000,
     excedeuLimite: rbt12 > 4_800_000,
   };

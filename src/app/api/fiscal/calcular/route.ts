@@ -17,6 +17,10 @@ const schema = z.object({
   regime: z.enum(["SIMPLES_NACIONAL", "LUCRO_PRESUMIDO", "LUCRO_REAL"]),
   consumidorFinal: z.boolean().default(true),
   contribuinteIcms: z.boolean().default(false),
+  dataOperacao: z.coerce.date().optional(),
+  ncm: z.string().optional(),
+  cest: z.string().optional(),
+  monofasico: z.boolean().optional(),
 });
 
 export const POST = comAuth("VENDEDOR", async (req) => {

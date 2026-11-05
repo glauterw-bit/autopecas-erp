@@ -49,9 +49,9 @@ export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
     return NextResponse.json(data);
   }
   if (body.acao === "encerrar") {
-    const data = await encerrarMdfe(body);
+    const data = await encerrarMdfe({ ...body, empresaId });
     return NextResponse.json(data);
   }
-  const data = await cancelarMdfe(body.chaveMdfe, body.justificativa);
+  const data = await cancelarMdfe(body.chaveMdfe, body.justificativa, empresaId);
   return NextResponse.json(data);
 });

@@ -19,6 +19,6 @@ export const POST = comAuth<Ctx>("CAIXA", async (_req, ctx, usuario) => {
       `Só é possível emitir nota fiscal de venda paga (tipo ${venda.tipo}, status ${venda.status}).`,
     );
   }
-  const nota = await emitirNotaFiscal(venda.id);
+  const nota = await emitirNotaFiscal(venda.id, usuario.empresaId);
   return NextResponse.json(nota);
 });

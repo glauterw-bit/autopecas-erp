@@ -1,5 +1,6 @@
 import { prisma } from "../db";
 import { parseXml } from "../catalogo/tecdoc-xml";
+import { itensDoXmlNfe } from "./xml-nfe";
 
 // Importação de NF-e de entrada via XML
 // =====================================
@@ -80,8 +81,12 @@ export async function importarXmlNfeEntrada(opts: {
   let itensMatched = 0;
   let itensSemMatch = 0;
 
+  // ICMS/ST por item (base do relatório da virada da ST — Portaria CAT 28/2020).
+  const icmsPorItem = itensDoXmlNfe(opts.xml);
+
   const itensCriados = await Promise.all(
-    dets.map(async (det) => {
+    dets.map(async (det, idx) => {
+      const icmsItem = icmsPorItem[idx];
       const prod = encontrar([det], "prod");
       const codProd = textoDe(prod, "cProd") ?? "";
       const ean = textoDe(prod, "cEAN");
@@ -123,6 +128,13 @@ export async function importarXmlNfeEntrada(opts: {
         ncm,
         precoVendaSugerido: precoSugerido,
         margemSugerida: margemAlvo,
+        cest: icmsItem?.cest ?? null,
+        cstIcms: icmsItem?.cstIcms ?? null,
+        vBcSt: icmsItem?.vBcSt ?? null,
+        vIcmsSt: icmsItem?.vIcmsSt ?? null,
+        vBcStRet: icmsItem?.vBcStRet ?? null,
+        vIcmsStRet: icmsItem?.vIcmsStRet ?? null,
+        vIcmsSubstituto: icmsItem?.vIcmsSubstituto ?? null,
       };
     }),
   );
