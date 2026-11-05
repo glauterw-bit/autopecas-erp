@@ -11,6 +11,7 @@ export interface AnuncioRemoto {
   status: "ATIVO" | "PAUSADO" | "ENCERRADO" | "REJEITADO" | "EM_REVISAO";
   url?: string;
   tipoListagem?: string;
+  sku?: string; // SELLER_SKU do anúncio (casa com Produto.sku)
   compatibilidadesUniversal?: boolean;
   compatibilidades?: Array<{
     montadora: string;

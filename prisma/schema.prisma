@@ -994,26 +994,26 @@ enum OrigemVenda {
 }
 
 model ItemVenda {
-  id                 String   @id @default(cuid())
-  vendaId            String
-  venda              Venda    @relation(fields: [vendaId], references: [id], onDelete: Cascade)
-  produtoId          String
-  produto            Produto  @relation(fields: [produtoId], references: [id])
-  quantidade         Decimal  @db.Decimal(14, 3)
-  precoUnitario      Decimal  @db.Decimal(14, 4)
-  custoUnitario      Decimal  @db.Decimal(14, 4)
-  desconto           Decimal  @default(0) @db.Decimal(14, 2)
-  acrescimo          Decimal  @default(0) @db.Decimal(14, 2)
-  total              Decimal  @db.Decimal(14, 2)
-  margem             Decimal? @db.Decimal(14, 2)
-  observacao         String?
+  id                      String   @id @default(cuid())
+  vendaId                 String
+  venda                   Venda    @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  produtoId               String
+  produto                 Produto  @relation(fields: [produtoId], references: [id])
+  quantidade              Decimal  @db.Decimal(14, 3)
+  precoUnitario           Decimal  @db.Decimal(14, 4)
+  custoUnitario           Decimal  @db.Decimal(14, 4)
+  desconto                Decimal  @default(0) @db.Decimal(14, 2)
+  acrescimo               Decimal  @default(0) @db.Decimal(14, 2)
+  total                   Decimal  @db.Decimal(14, 2)
+  margem                  Decimal? @db.Decimal(14, 2)
+  observacao              String?
   // alerta MarginGuard
-  margemAbaixoMinimo Boolean  @default(false)
+  margemAbaixoMinimo      Boolean  @default(false)
   // Fiscal: número do item (nItem) na nota emitida e retrato do que foi enviado.
   // A devolução referencia a nota original por item (NT 2025.002, Rej. 321).
   numeroItemNota          Int?
   fiscalNota              Json?
-  quantidadeDevolvidaNota Decimal @default(0) @db.Decimal(14, 3)
+  quantidadeDevolvidaNota Decimal  @default(0) @db.Decimal(14, 3)
 
   @@map("itens_venda")
 }
@@ -1875,4 +1875,62 @@ model UsoIA {
 
   @@index([empresaId, criadoEm])
   @@map("uso_ia")
+}
+
+// Webhooks recebidos (ML, Shopee, Pix...). Idempotência pelo id do evento na
+// origem: o unique (origem, idExterno) impede processar duas vezes o mesmo
+// aviso, mesmo com reentrega do provedor. empresaId é resolvido pela conta
+// (ML user_id, Shopee shop_id) e fica nulo quando não casa nenhuma.
+model EventoWebhook {
+  id           String    @id @default(cuid())
+  origem       String // MERCADO_LIVRE, SHOPEE, PIX...
+  idExterno    String
+  empresaId    String?
+  contaId      String?
+  topico       String?
+  recurso      String?
+  status       String    @default("PENDENTE") // PENDENTE, PROCESSADO, IGNORADO, ERRO
+  tentativas   Int       @default(0)
+  erro         String?
+  payload      Json?
+  recebidoEm   DateTime  @default(now())
+  processadoEm DateTime?
+
+  @@unique([origem, idExterno])
+  @@index([status, recebidoEm])
+  @@index([empresaId, recebidoEm])
+  @@map("eventos_webhook")
+}
+
+// Cache do mapeamento versão de veículo (catálogo interno) → produtos de
+// veículo do catálogo de compatibilidades do Mercado Livre. É global (o
+// catálogo de veículos do ML é o mesmo para todas as lojas).
+model CompatibilidadeMLCache {
+  id           String   @id @default(cuid())
+  versaoId     String   @unique
+  dominio      String
+  produtosMl   Json // string[] de ids de produto-veículo do ML
+  status       String // MAPEADO, SEM_CORRESPONDENCIA
+  detalhe      String?
+  atualizadoEm DateTime @updatedAt
+
+  @@map("compatibilidades_ml_cache")
+}
+
+// Dono local de cada recorrência Pix Automático: o idRec é do PSP (global),
+// então sem esta tabela uma empresa conseguia pausar/cancelar/cobrar a
+// recorrência de outra. Toda ação filtra por (id, empresaId).
+model PixRecorrencia {
+  id            String   @id // idRec
+  empresaId     String
+  clienteId     String
+  descricao     String
+  valor         Decimal  @db.Decimal(14, 2)
+  periodicidade String
+  status        String   @default("CRIADA") // CRIADA, ATIVA, PAUSADA, CANCELADA
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@index([empresaId])
+  @@map("pix_recorrencias")
 }

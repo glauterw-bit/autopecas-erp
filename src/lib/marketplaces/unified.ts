@@ -5,6 +5,8 @@ import { MagaluAdapter } from "./magalu";
 import { MercadoLivreAdapter } from "./mercado-livre";
 import { ShopeeAdapter } from "./shopee";
 import type { AdaptadorMarketplace } from "./types";
+import type { PedidoMLRaw } from "./mercado-livre";
+import { importarPedidoML } from "./pedido-ml";
 
 // Hub unificado: o sistema chama "sincronizar tudo" e cada adaptador faz a parte.
 //
@@ -43,7 +45,7 @@ export async function sincronizarConta(contaId: string) {
   // Persiste anúncios — match por SKU/título quando possível.
   for (const a of anuncios) {
     try {
-      const produtoId = await encontrarProdutoPorTitulo(conta.empresaId, a.titulo);
+      const produtoId = await encontrarProduto(conta.empresaId, a.sku, a.titulo);
       await prisma.marketplaceAnuncio.upsert({
         where: { contaId_itemIdExterno: { contaId, itemIdExterno: a.itemIdExterno } },
         update: {
@@ -73,8 +75,22 @@ export async function sincronizarConta(contaId: string) {
     }
   }
 
-  // Persiste pedidos novos.
-  for (const p of pedidos) {
+  // Mercado Livre: pedido pago vira Venda (idempotente por externoId
+  // "ML-<id>", com baixa no kardex). Os demais só ficam registrados.
+  let vendasImportadas = 0;
+  if (conta.plataforma === "MERCADO_LIVRE") {
+    for (const p of pedidos) {
+      try {
+        const r = await importarPedidoML(contaId, p.payloadOriginal as PedidoMLRaw);
+        if (r.status === "IMPORTADO") vendasImportadas++;
+      } catch (e) {
+        console.error(`[sync] pedido ML ${p.pedidoIdExterno}:`, (e as Error).message?.slice(0, 160));
+      }
+    }
+  }
+
+  // Persiste pedidos novos (ML já foi gravado por importarPedidoML).
+  for (const p of conta.plataforma === "MERCADO_LIVRE" ? [] : pedidos) {
     await prisma.marketplacePedido.upsert({
       where: { contaId_pedidoIdExterno: { contaId, pedidoIdExterno: p.pedidoIdExterno } },
       update: { status: p.status, payloadOriginal: p.payloadOriginal as Prisma.InputJsonValue },
@@ -115,11 +131,15 @@ export async function sincronizarConta(contaId: string) {
     data: { ultimoSync: new Date() },
   });
 
-  return { anuncios: anuncios.length, pedidos: pedidos.length, mensagens: mensagens.length };
+  return { anuncios: anuncios.length, pedidos: pedidos.length, vendasImportadas, mensagens: mensagens.length };
 }
 
-// Heurística simples (em produção troca por embeddings + score).
-async function encontrarProdutoPorTitulo(empresaId: string, titulo: string): Promise<string> {
+// SKU do anúncio (SELLER_SKU) primeiro; senão heurística por título.
+async function encontrarProduto(empresaId: string, sku: string | undefined, titulo: string): Promise<string> {
+  if (sku) {
+    const porSku = await prisma.produto.findFirst({ where: { empresaId, sku }, select: { id: true } });
+    if (porSku) return porSku.id;
+  }
   const p = await prisma.produto.findFirst({
     where: {
       empresaId,
