@@ -53,7 +53,7 @@ O centro do valor é a loja vender mais e errar menos: achar a peça certa rápi
   - Nunca edite uma migração já aplicada e nunca use `db push` em produção.
 - Worker (`npm run worker`): é outro processo e precisa de `REDIS_URL`. Confirme se existe serviço de worker no Railway antes de contar com os jobs.
 - Agente do PDV: a pasta `agente-pdv/` é copiada para a máquina da loja (veja o README dela). Mudou o contrato? Então mude junto `src/lib/pdv/*` e o agente.
-- Em jul/2026 o trial do Railway expirou e o deploy bloqueou. Se `railway up` falhar por plano, avise o dono, não contorne.
+- A conta do Railway está ativa (conferido em 04/11/2026: outros projetos publicam normalmente). Se `railway up` falhar por plano, avise o dono, não contorne.
 
 ## Testar
 - `npx tsc --noEmit`: tipos.
