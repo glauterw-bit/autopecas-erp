@@ -7,7 +7,8 @@ export const GET = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
   const termo = req.nextUrl.searchParams.get("q") ?? undefined;
   const versaoId = req.nextUrl.searchParams.get("versao") ?? undefined;
-  const resultados = await buscarProdutosPDV({ empresaId, termo, versaoId });
+  const pagina = Number(req.nextUrl.searchParams.get("pagina")) || 1;
+  const resultados = await buscarProdutosPDV({ empresaId, termo, versaoId, pagina });
   // Selo de cadastro no balcão: "aplicação verificada" ou "em revisão".
   const ids = resultados.map((r) => r.id);
   const selos = ids.length
