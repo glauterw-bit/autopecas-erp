@@ -28,7 +28,7 @@ Legenda:
 
 | Área | Status | O que existe | Falta |
 |---|---|---|---|
-| **Mercado Livre** | 🟡 beta | sync de anúncios e pedidos, publicar anúncio, compatibilidade de autopeças, perguntas (`src/lib/marketplaces/mercado-livre.ts`) | sync para em 1.000 anúncios (`MAX_PAGINAS = 20` × 50, linha 25); não testado com conta real |
+| **Mercado Livre** | 🟡 beta | sync de anúncios e pedidos, publicar anúncio, compatibilidade de autopeças, perguntas (`src/lib/marketplaces/mercado-livre.ts`) | listagem sem teto (scroll/scan), 429 com espera, pedido pago vira venda; não testado com conta real |
 | **Shopee** | 🟡 beta | sync de anúncios e pedidos, webhook com HMAC (`src/lib/marketplaces/shopee.ts`) | teste com conta real |
 | **Amazon SP-API** | 🟡 beta | LWA OAuth, Listings e Orders (`src/lib/marketplaces/amazon.ts`) | teste com conta real |
 | **Magalu** | 🟡 beta | adaptador de anúncios, pedidos, preço e estoque (`src/lib/marketplaces/magalu.ts`) | envio de mensagem não implementado (`magalu.ts:157`); teste com conta real |
@@ -154,7 +154,7 @@ Falta: filtrar as peças compatíveis com o veículo. A busca por aplicação ex
 > Implementação: `src/lib/catalogo/placa.ts` + `GET /api/veiculos/buscar-placa`
 
 ### 2.8 Marketplaces numa interface única + compatibilidade no ML (🟡 beta)
-Adaptadores com a mesma interface (`AdaptadorMarketplace`) para ML, Shopee, Amazon e Magalu. Envia a aplicação veicular do ERP para a compatibilidade de autopeças do Mercado Livre. Não testado com conta real; o sync do ML para em 1.000 anúncios.
+Adaptadores com a mesma interface (`AdaptadorMarketplace`) para ML, Shopee, Amazon e Magalu. Envia a aplicação veicular do ERP para a compatibilidade de autopeças do Mercado Livre. Não testado com conta real.
 
 > Implementação: `src/lib/marketplaces/{mercado-livre,shopee,unified}.ts`
 

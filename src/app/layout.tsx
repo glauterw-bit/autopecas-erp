@@ -1,10 +1,21 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
+const titulo = "AutoPeças ERP: sistema para loja de autopeças";
+const descricao =
+  "Achar a peça certa rápido, nota que sai certa, estoque que bate e nenhum cliente esquecido. Sistema para lojas de autopeças, em fase de piloto. Teste grátis por 14 dias.";
+
 export const metadata: Metadata = {
-  title: "AutoPeças ERP",
-  description:
-    "ERP para lojas de autopeças: balcão, estoque, fiscal, financeiro e marketplaces, com IA da OpenAI que sugere e a pessoa confirma. Em fase de piloto.",
+  title: titulo,
+  description: descricao,
+  openGraph: {
+    title: titulo,
+    description: descricao,
+    type: "website",
+    locale: "pt_BR",
+    siteName: "AutoPeças ERP",
+  },
+  twitter: { card: "summary", title: titulo, description: descricao },
 };
 
 // Aplica o tema salvo antes da pintura para evitar flash (FOUC).
