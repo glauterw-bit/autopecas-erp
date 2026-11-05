@@ -6,6 +6,7 @@ import { ipDoCliente } from "@/lib/auth/ip";
 import { permitidoAsync } from "@/lib/auth/rate-limit";
 import { criarTokenConta, urlDoLink } from "@/lib/auth/contas";
 import { emailConfigurado, enviarEmail } from "@/lib/auth/email";
+import { erroSeguro } from "@/lib/log-seguro";
 
 // Rota pública (recuperação de senha): a resposta é a mesma para e-mail
 // cadastrado ou não, e com ou sem serviço de e-mail configurado.
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
         try {
           await enviarLinkDeRedefinicao(email, origem);
         } catch (e) {
-          console.error("[esqueci] falha ao enviar o link de redefinição:", (e as Error).message);
+          console.error("[esqueci] falha ao enviar o link de redefinição:", erroSeguro(e));
         }
       });
     }

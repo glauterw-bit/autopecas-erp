@@ -7,6 +7,7 @@ import { ShopeeAdapter } from "./shopee";
 import type { AdaptadorMarketplace } from "./types";
 import type { PedidoMLRaw } from "./mercado-livre";
 import { importarPedidoML } from "./pedido-ml";
+import { erroSeguro } from "../log-seguro";
 
 // Hub unificado: o sistema chama "sincronizar tudo" e cada adaptador faz a parte.
 //
@@ -84,7 +85,7 @@ export async function sincronizarConta(contaId: string) {
         const r = await importarPedidoML(contaId, p.payloadOriginal as PedidoMLRaw);
         if (r.status === "IMPORTADO") vendasImportadas++;
       } catch (e) {
-        console.error(`[sync] pedido ML ${p.pedidoIdExterno}:`, (e as Error).message?.slice(0, 160));
+        console.error(`[sync] pedido ML ${p.pedidoIdExterno}:`, erroSeguro(e, 160));
       }
     }
   }
