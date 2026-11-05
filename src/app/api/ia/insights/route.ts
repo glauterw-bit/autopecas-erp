@@ -24,7 +24,8 @@ export const GET = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
           | "COMPRA_SUGERIDA"
           | "ANUNCIO_FRACO"
           | "CADASTRO_DUPLICADO"
-          | "PRODUTO_OBSOLETO",
+          | "PRODUTO_OBSOLETO"
+          | "NFE_PENDENTE",
       }),
       ...(aberto && { resolvidoEm: null }),
     },

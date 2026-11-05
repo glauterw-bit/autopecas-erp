@@ -42,6 +42,32 @@ export function configFocus(
   };
 }
 
+/**
+ * Configuração para CONSULTAR uma nota já emitida: usa o ambiente gravado na
+ * nota, não o atual da empresa (a empresa pode ter passado para produção com
+ * notas de homologação ainda em voo, e vice-versa).
+ * Token: o da empresa vale quando o ambiente da nota é o atual; para a outra
+ * ponta, é preciso o token próprio do ambiente (FOCUS_NFE_TOKEN_HOMOLOGACAO_<CNPJ>
+ * ou FOCUS_NFE_TOKEN_HOMOLOGACAO; FOCUS_NFE_TOKEN_PRODUCAO_<CNPJ> ou
+ * FOCUS_NFE_TOKEN_PRODUCAO). Esses tokens específicos têm prioridade.
+ */
+export function configFocusDaNota(
+  empresa: { cnpj: string; configuracoes?: unknown },
+  ambienteNota: "HOMOLOGACAO" | "PRODUCAO",
+  env: Record<string, string | undefined> = process.env,
+): ConfigFocusEmpresa {
+  const base = configFocus(empresa, env);
+  const ambiente: ConfigFocusEmpresa["ambiente"] = ambienteNota === "PRODUCAO" ? "producao" : "homologacao";
+  const sufixo = ambiente === "producao" ? "PRODUCAO" : "HOMOLOGACAO";
+  const cnpj = empresa.cnpj.replace(/\D/g, "");
+  const especifico = env[`FOCUS_NFE_TOKEN_${sufixo}_${cnpj}`] ?? env[`FOCUS_NFE_TOKEN_${sufixo}`];
+  return {
+    ...base,
+    ambiente,
+    token: especifico ?? (ambiente === base.ambiente ? base.token : ""),
+  };
+}
+
 /** CNPJ do emitente embutido na chave de acesso (posições 7 a 20). */
 export function cnpjDaChave(chave: string): string {
   return chave.replace(/\D/g, "").slice(6, 20);

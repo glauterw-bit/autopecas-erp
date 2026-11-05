@@ -82,7 +82,7 @@ function validar(f: Campos): Partial<Record<keyof Campos, string>> {
   return e;
 }
 
-export function FormNovoProduto({ marcas, categorias }: { marcas: Opcao[]; categorias: Opcao[] }) {
+export function FormNovoProduto({ marcas, categorias, podeFiscal }: { marcas: Opcao[]; categorias: Opcao[]; podeFiscal: boolean }) {
   const router = useRouter();
   const [f, setF] = useState<Campos>(VAZIO);
   const [erros, setErros] = useState<Partial<Record<keyof Campos, string>>>({});
@@ -121,9 +121,8 @@ export function FormNovoProduto({ marcas, categorias }: { marcas: Opcao[]; categ
           custoMedio: paraNumero(f.custoMedio),
           precoVenda: paraNumero(f.precoVenda),
           estoqueMinimo: paraNumero(f.estoqueMinimo),
-          ncm: f.ncm,
-          cest: f.cest,
-          origemFiscal: Number(f.origemFiscal),
+          // Dados fiscais só seguem para quem tem perfil Financeiro ou acima (a API recusa os outros).
+          ...(podeFiscal ? { ncm: f.ncm, cest: f.cest, origemFiscal: Number(f.origemFiscal) } : {}),
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -158,7 +157,7 @@ export function FormNovoProduto({ marcas, categorias }: { marcas: Opcao[]; categ
   const campo = (
     k: keyof Campos,
     rotulo: string,
-    opts: { dica?: string; obrigatorio?: boolean; inputMode?: "decimal" | "numeric"; autoFocus?: boolean; maxLength?: number } = {},
+    opts: { dica?: string; obrigatorio?: boolean; inputMode?: "decimal" | "numeric"; autoFocus?: boolean; maxLength?: number; desabilitado?: boolean } = {},
   ) => (
     <div>
       <label htmlFor={`np-${k}`} className="text-sm font-medium">
@@ -172,6 +171,7 @@ export function FormNovoProduto({ marcas, categorias }: { marcas: Opcao[]; categ
         inputMode={opts.inputMode}
         autoFocus={opts.autoFocus}
         maxLength={opts.maxLength}
+        disabled={opts.desabilitado}
         required={opts.obrigatorio}
         aria-invalid={erros[k] ? true : undefined}
         aria-describedby={`np-${k}-msg`}
@@ -183,7 +183,7 @@ export function FormNovoProduto({ marcas, categorias }: { marcas: Opcao[]; categ
     </div>
   );
 
-  const selecao = (k: keyof Campos, rotulo: string, opcoes: readonly (readonly [string, string])[], vazio?: string) => (
+  const selecao = (k: keyof Campos, rotulo: string, opcoes: readonly (readonly [string, string])[], vazio?: string, desabilitado?: boolean) => (
     <div>
       <label htmlFor={`np-${k}`} className="text-sm font-medium">
         {rotulo}
@@ -192,6 +192,7 @@ export function FormNovoProduto({ marcas, categorias }: { marcas: Opcao[]; categ
         id={`np-${k}`}
         value={f[k]}
         onChange={set(k)}
+        disabled={desabilitado}
         className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {vazio !== undefined && <option value="">{vazio}</option>}
@@ -241,12 +242,13 @@ export function FormNovoProduto({ marcas, categorias }: { marcas: Opcao[]; categ
           <p className="text-xs text-muted-foreground">
             Sem NCM a nota não sai. Se não souber, deixe em branco e peça ao contador; o produto fica marcado como
             cadastro incompleto.
+            {!podeFiscal && " Estes campos são preenchidos por quem cuida do fiscal (perfil Financeiro ou acima); você pode cadastrar o produto sem eles."}
           </p>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-x-4 gap-y-1 md:grid-cols-2">
-          {campo("ncm", "NCM", { inputMode: "numeric", maxLength: 10, dica: "8 números, ex.: 8708.30.90" })}
-          {campo("cest", "CEST", { inputMode: "numeric", maxLength: 9, dica: "7 números, ex.: 01.001.00. Só para quem tem ST" })}
-          {selecao("origemFiscal", "Origem da mercadoria", ORIGENS)}
+          {campo("ncm", "NCM", { inputMode: "numeric", maxLength: 10, dica: "8 números, ex.: 8708.30.90", desabilitado: !podeFiscal })}
+          {campo("cest", "CEST", { inputMode: "numeric", maxLength: 9, dica: "7 números, ex.: 01.001.00. Só para quem tem ST", desabilitado: !podeFiscal })}
+          {selecao("origemFiscal", "Origem da mercadoria", ORIGENS, undefined, !podeFiscal)}
         </CardContent>
       </Card>
 

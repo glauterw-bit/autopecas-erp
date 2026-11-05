@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formaPagamentoDoMarketplace, pagamentoPrincipalML } from "./forma-pagamento";
+import { formaPagamentoDoMarketplace, formaPagamentoVallente, pagamentoPrincipalML } from "./forma-pagamento";
 
 describe("forma de pagamento do marketplace", () => {
   it.each([
@@ -27,5 +27,24 @@ describe("forma de pagamento do marketplace", () => {
 
   it("pedido sem pagamento listado não vira PIX por chute", () => {
     expect(pagamentoPrincipalML(undefined).forma).toBe("TRANSFERENCIA");
+  });
+});
+
+describe("forma de pagamento do Vallente (compatível com o comportamento antigo)", () => {
+  it.each([
+    [undefined, "PIX"],
+    ["", "PIX"],
+    ["  ", "PIX"],
+    ["pix", "PIX"],
+    ["mercadopago", "PIX"],
+    ["xyz", "PIX"],
+    ["credit_card", "CREDITO"],
+    ["visa", "CREDITO"],
+    ["debit_card", "DEBITO"],
+    ["boleto", "BOLETO"],
+    ["ticket", "BOLETO"],
+    ["bank_transfer", "TRANSFERENCIA"],
+  ])("%s -> %s", (entrada, esperado) => {
+    expect(formaPagamentoVallente(entrada)).toBe(esperado);
   });
 });

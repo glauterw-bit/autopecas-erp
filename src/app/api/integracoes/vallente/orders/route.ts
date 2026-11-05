@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { empresaPorApiKey, respostaErro, ApiError } from "@/lib/auth/guard";
 import { ErroImportacao, importarVendaMarketplace } from "@/lib/marketplaces/importar-venda";
-import { formaPagamentoDoMarketplace } from "@/lib/marketplaces/forma-pagamento";
+import { formaPagamentoVallente } from "@/lib/marketplaces/forma-pagamento";
 
 // Recebe vendas do Mercado Livre exportadas pelo Vallente Hub
 // (erp.service.exportSalesToErp → GenericErpClient.createSaleOrder).
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       valorFrete: pedido.shippingCost,
       pago,
       bandeiraPagamento: pedido.paymentMethod,
-      formaPagamento: formaPagamentoDoMarketplace(undefined, pedido.paymentMethod),
+      formaPagamento: formaPagamentoVallente(pedido.paymentMethod),
       observacoes: `Pedido ML ${pedido.mlOrderId} via Vallente Hub — ${pedido.customerName} ${pedido.customerDocument}`.trim(),
       dadosAlerta: { mlOrderId: pedido.mlOrderId },
     });

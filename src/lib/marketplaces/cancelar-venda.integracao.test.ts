@@ -81,6 +81,22 @@ describe.skipIf(!URL)("cancelar venda de marketplace (banco)", () => {
     expect(await db.insightIA.count({ where: { empresaId, titulo: { contains: "nota fiscal emitida" } } })).toBe(1);
   });
 
+  it("conta parcialmente paga: não vira CANCELADO, fica marcada para revisão com alerta; as abertas são canceladas", async () => {
+    const venda = await criarVenda("ML-3", 3, false);
+    const parcial = await db.contaReceber.create({
+      data: { empresaId, vendaId: venda.id, descricao: "ML parcela", formaPagamento: "PIX", dataVencimento: new Date(), valor: 60, valorRecebido: 20, status: "PARCIALMENTE_PAGO", parcela: 2, totalParcelas: 2 },
+    });
+    const a = { empresaId, contaId, pedidoIdExterno: "3", externoId: "ML-3" };
+    expect(await cancelarVendaMarketplace(a, db)).toMatchObject({ status: "CANCELADA", contasCanceladas: 1, contasParaRevisao: 1 });
+    expect((await cancelarVendaMarketplace(a, db)).status).toBe("JA_CANCELADA");
+    const c = await db.contaReceber.findUniqueOrThrow({ where: { id: parcial.id } });
+    expect(c.status).toBe("PARCIALMENTE_PAGO");
+    expect(Number(c.valorRecebido)).toBe(20);
+    expect(c.observacoes).toContain("REVISAO_CANCELAMENTO");
+    expect(await db.contaReceber.count({ where: { vendaId: venda.id, status: "CANCELADO" } })).toBe(1);
+    expect(await db.insightIA.count({ where: { empresaId, severidade: "CRITICO", dadosReferencia: { path: ["vendaId"], equals: venda.id } } })).toBe(1);
+  });
+
   it("pedido que nunca virou venda: nada a fazer", async () => {
     expect((await cancelarVendaMarketplace({ empresaId, contaId, pedidoIdExterno: "9", externoId: "ML-9" }, db)).status).toBe("SEM_VENDA");
   });

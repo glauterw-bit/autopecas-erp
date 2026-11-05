@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
 import { podePerfil } from "@/lib/auth/config";
 import { registrarAuditoria } from "@/lib/crm/auditoria";
+import { CAMPOS_FISCAIS_PRODUTO } from "@/lib/produtos/campos-fiscais";
 import { eanValido, ncmValido, problemasDoProduto } from "@/lib/crm/qualidade-cadastro";
 
 // Ficha do produto para corrigir cadastro
@@ -87,21 +88,6 @@ const patchSchema = z
     cClassTrib: z.preprocess(vazioParaNull, z.string().trim().regex(/^\d{6}$/).nullable()).optional(),
   })
   .strict();
-
-/** Campos que mudam a nota fiscal: exigem perfil FINANCEIRO ou acima. */
-const CAMPOS_FISCAIS_PRODUTO = [
-  "ncm",
-  "cest",
-  "cstIcms",
-  "cfopVendaInterna",
-  "cfopVendaInterestadual",
-  "origemFiscal",
-  "monofasicoPisCofins",
-  "cstPis",
-  "cstCofins",
-  "cstIbsCbs",
-  "cClassTrib",
-] as const;
 
 export const PATCH = comAuth<Ctx>("ESTOQUISTA", async (req, ctx, usuario) => {
   const { id } = await ctx.params;

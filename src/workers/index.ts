@@ -53,7 +53,7 @@ async function main() {
   console.log("  - ai:stockpredict     03:00 diariamente");
   console.log("  - ai:marginguard      04:00 diariamente");
   console.log("  - catalogo:tecdoc     02:00 dia 1 de cada mês");
-  console.log("  - fiscal:nfe-consulta a cada minuto (notas EMITINDO > 1 min, até 50)");
+  console.log("  - fiscal:nfe-consulta a cada minuto (notas EMITINDO com consulta vencida, até 50; espaçadas 1/5/15/60 min)");
 
   const workers = [
     syncMarketplacesWorker,
