@@ -1,7 +1,7 @@
 {
   "name": "AutoPeças ERP — Vendedor",
   "short_name": "AutoPeças",
-  "description": "PWA do vendedor externo: catálogo, orçamento, leitor de código de barras e Pix.",
+  "description": "PWA do vendedor externo (em desenvolvimento): leitor de código de barras.",
   "start_url": "/m",
   "display": "standalone",
   "background_color": "#0a0a0a",
@@ -22,8 +22,6 @@
     }
   ],
   "shortcuts": [
-    { "name": "Novo orçamento", "short_name": "Orçamento", "url": "/m/orcamento", "icons": [] },
-    { "name": "Catálogo", "short_name": "Catálogo", "url": "/m/catalogo", "icons": [] },
     { "name": "Scanner", "short_name": "Bipar", "url": "/m/scanner", "icons": [] }
   ],
   "categories": ["business", "productivity"]

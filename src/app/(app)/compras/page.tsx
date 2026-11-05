@@ -40,9 +40,9 @@ export default function ComprasPage() {
         </CardHeader>
         <CardContent>
           <p className="mb-4 text-sm text-muted-foreground">
-            Solte a DANFE (PDF, JPG ou PNG) abaixo. A IA Claude extrai cabeçalho,
-            itens, NCM, CFOP, alíquotas e sugere o preço de venda com base na
-            margem-alvo de cada produto.
+            Em desenvolvimento: o envio por esta tela ainda não funciona. A IA da
+            OpenAI vai ler a DANFE (PDF, JPG ou PNG) e trazer cabeçalho, itens,
+            NCM, CFOP e alíquotas para você conferir antes da entrada.
           </p>
           <div className="flex flex-col items-center justify-center rounded-md border-2 border-dashed border-border bg-secondary/40 p-12 text-center text-sm text-muted-foreground">
             <Upload className="mb-2 h-8 w-8" />

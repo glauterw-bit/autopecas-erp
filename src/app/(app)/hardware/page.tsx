@@ -15,7 +15,7 @@ const dispositivos = [
     icon: Cpu,
     titulo: "SAT-CF-e (modelo 59)",
     descricao:
-      "Equipamento autenticador para CF-e em estados que ainda usam SAT (principalmente SP). Envio, consulta e cancelamento.",
+      "Não vale para SP: o SAT acabou em 01/01/2026 (Portaria SRE 79/2024) e o balcão usa NFC-e. Use só onde a SEFAZ ainda aceite SAT. Envio, consulta e cancelamento.",
     detalhe: "src/lib/pdv/sat.ts — SatLocalClient (HTTP 127.0.0.1:60907)",
     bandeiras: ["Dimep", "Bematech", "Elgin", "Sweda", "Tanca"],
   },

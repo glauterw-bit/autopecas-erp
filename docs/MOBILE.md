@@ -1,6 +1,6 @@
 # App Mobile — PWA + Wrapper Nativo
 
-O AutoPeças ERP entrega o app mobile de **3 formas**:
+Plano para o app mobile em **3 formas**. **Estado em 04/11/2026:** só existe o PWA `/m` com o scanner de código de barras (`src/app/m/scanner`); as outras 5 telas do menu de `/m` ainda não existem, e o app nativo não foi montado (o Capacitor não está no `package.json`, só há `capacitor.config.ts`). Nada foi publicado nas lojas de apps.
 
 ## 1. PWA (zero instalação)
 
@@ -9,12 +9,12 @@ URL: `https://seu-dominio/m`
 - Instalável direto do navegador (Chrome/Safari) — vira ícone na home.
 - Service Worker (`/sw.js`) cacheia assets e fila offline para vendas.
 - Scanner de código de barras nativo via [BarcodeDetector API](https://developer.mozilla.org/en-US/docs/Web/API/Barcode_Detection_API) (Chrome Android, Safari iOS 17+).
-- Funciona offline para consulta de catálogo e abertura de orçamento (sync quando recupera conexão).
+- Planejado: offline para consulta de catálogo e abertura de orçamento. Hoje o `sw.js` faz cache e tem a fila de sincronização, mas as telas de catálogo e orçamento do `/m` ainda não existem.
 
 **Pros:** sem App Store, deploy instantâneo, custo zero.
 **Contras:** algumas APIs nativas limitadas (push notifications no iOS exige Safari 16.4+, NFC só Android).
 
-## 2. App nativo Capacitor (publicação App Store / Play Store)
+## 2. App nativo Capacitor (publicação App Store / Play Store) — não montado ainda
 
 Mesmo código React, empacotado como app iOS/Android.
 
@@ -70,7 +70,7 @@ bubblewrap build
 | Cliente final mecânico | PWA — instala via QR Code do PDV |
 | App nas lojas (marketing) | Capacitor |
 
-## Como o PWA já cobre os pré-requisitos
+## O que o PWA já tem de base
 
 - **manifest.json** — instalação, ícones, shortcuts
 - **sw.js** — cache cache-first + network-first /api + sync offline
