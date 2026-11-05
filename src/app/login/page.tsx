@@ -97,7 +97,10 @@ export default function LoginPage() {
             {carregando ? "Entrando..." : "Entrar"}
           </button>
         </form>
-        <p className="mt-4 text-center text-xs text-muted-foreground">
+        <p className="mt-4 text-center text-xs">
+          <a href="/esqueci-senha" className="text-accent hover:underline">Esqueci minha senha</a>
+        </p>
+        <p className="mt-2 text-center text-xs text-muted-foreground">
           Acesso de cliente?{" "}
           <a href="/b2b/login" className="text-accent hover:underline">
             Portal B2B

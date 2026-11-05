@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { Archive, BarChart3, PackageX, ShieldCheck, TrendingUp, Package, Users } from "lucide-react";
 import { prisma } from "@/lib/db";
@@ -10,6 +11,7 @@ import { sqlVendaFaturada } from "@/lib/vendas/venda-faturada";
 export const dynamic = "force-dynamic";
 
 export default async function RelatoriosPage() {
+  await exigirPerfilPagina("/relatorios");
   const empresaId = await empresaAtualId();
   const inicioMes = new Date();
   inicioMes.setDate(1);

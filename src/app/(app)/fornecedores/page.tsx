@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,6 +8,7 @@ import { maskCpfCnpj } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function FornecedoresPage() {
+  await exigirPerfilPagina("/fornecedores");
   const empresaId = await empresaAtualId();
   const fornecedores = await prisma.fornecedor.findMany({
     where: { empresaId },

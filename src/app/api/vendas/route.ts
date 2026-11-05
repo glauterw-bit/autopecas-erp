@@ -5,6 +5,7 @@ import { comAuth, ApiError } from "@/lib/auth/guard";
 import { avaliarMargemItem } from "@/lib/ai/margin-guard";
 import {
   validarDescontoTotal,
+  descontoAcimaDaPolitica,
   validarPrecoMinimoItem,
 } from "@/lib/vendas/politica-desconto";
 import { promocoesVigentes, type PromocaoVigente } from "@/lib/vendas/promocoes";
@@ -15,6 +16,7 @@ import {
   criarContasReceberParceladas,
   consumirLimiteCrediario,
 } from "@/lib/vendas/crediario";
+import { registrarAuditoria } from "@/lib/auth/auditoria";
 import { Prisma } from "@prisma/client";
 
 const itemSchema = z.object({
@@ -102,6 +104,7 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
   let descontoItens = 0;
   let valorBrutoCatalogo = 0;
   let descontoEfetivoItens = 0;
+  const itensAbaixoDoMinimo: Array<{ sku: string; precoEfetivo: number; precoMinimo: number }> = [];
   const promocoesAplicadas: Array<
     PromocaoVigente & { precoEnviado: number }
   > = [];
@@ -139,6 +142,17 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
       !!promo &&
       promo.precoPromocional > 0 &&
       Math.abs(precoEfetivo - promo.precoPromocional) <= 0.005;
+    if (
+      !precoEhPromocionalVigente &&
+      p.precoMinimo &&
+      precoEfetivo < Number(p.precoMinimo) - 0.005
+    ) {
+      itensAbaixoDoMinimo.push({
+        sku: p.sku,
+        precoEfetivo: Math.round(precoEfetivo * 100) / 100,
+        precoMinimo: Number(p.precoMinimo),
+      });
+    }
     if (!precoEhPromocionalVigente) {
       validarPrecoMinimoItem({
         perfil: usuario.perfil,
@@ -177,6 +191,11 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
     valorBruto: valorBrutoCatalogo,
     descontoTotal: body.descontoGeral + descontoEfetivoItens,
   });
+
+  const descontoTotalEfetivo = body.descontoGeral + descontoEfetivoItens;
+  const auditarDesconto =
+    descontoAcimaDaPolitica({ valorBruto: valorBrutoCatalogo, descontoTotal: descontoTotalEfetivo }) ||
+    itensAbaixoDoMinimo.length > 0;
 
   // A1: o total desconta TAMBÉM os descontos de item, não só o geral.
   const valorDesconto = body.descontoGeral + descontoItens;
@@ -260,6 +279,26 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
           },
           include: { itens: true, pagamentos: true },
         });
+
+        // Desconto acima da política do balcão (ou abaixo do preço mínimo,
+        // liberado por gerente/admin) fica registrado com antes e depois.
+        if (auditarDesconto) {
+          await registrarAuditoria(tx, {
+            empresaId,
+            usuarioId: usuario.id,
+            acao: "VENDA_DESCONTO_ACIMA_POLITICA",
+            entidade: "Venda",
+            entidadeId: v.id,
+            antes: { valorBrutoCatalogo: valorBrutoCatalogo.toFixed(2), descontoPolitica: "ate 5%" },
+            depois: {
+              numero,
+              perfil: usuario.perfil,
+              descontoTotal: descontoTotalEfetivo.toFixed(2),
+              percentual: ((descontoTotalEfetivo / valorBrutoCatalogo) * 100).toFixed(1),
+              itensAbaixoDoMinimo,
+            },
+          });
+        }
 
         // baixa de estoque (venda normal e condicional; orçamento não baixa)
         // B3: nunca pula a baixa em silêncio — sem saldo suficiente, ou o

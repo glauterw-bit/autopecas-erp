@@ -1,3 +1,4 @@
+import { registrarAuditoria } from "@/lib/auth/auditoria";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -56,11 +57,25 @@ export const POST = comAuth("TECNICO", async (req, _ctx, usuario) => {
   // Ações sobre uma OS existente: garante que a ordem pertence à empresa.
   const ordem = await prisma.ordemServico.findFirst({
     where: { id: body.ordemId, empresaId },
-    select: { id: true },
+    select: { id: true, status: true },
   });
   if (!ordem) throw new ApiError(404, "Ordem de serviço não encontrada");
 
-  if (body.acao === "atualizar-status") return NextResponse.json(await atualizarStatusOS(body));
+  if (body.acao === "atualizar-status") {
+    const out = await atualizarStatusOS(body);
+    if (body.status === "CANCELADA" && ordem.status !== "CANCELADA") {
+      await registrarAuditoria(prisma, {
+        empresaId,
+        usuarioId: usuario.id,
+        acao: "OS_CANCELADA",
+        entidade: "OrdemServico",
+        entidadeId: ordem.id,
+        antes: { status: ordem.status },
+        depois: { status: "CANCELADA" },
+      });
+    }
+    return NextResponse.json(out);
+  }
   if (body.acao === "vincular-pecas") {
     const venda = await prisma.venda.findFirst({
       where: { id: body.vendaId, empresaId },

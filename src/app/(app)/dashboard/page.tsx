@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Sparkles, Wallet } from "lucide-react";
 import { prisma } from "@/lib/db";
@@ -51,6 +52,7 @@ async function carregarDados() {
 }
 
 export default async function DashboardPage() {
+  await exigirPerfilPagina("/dashboard");
   const { hoje, mes, receber, pagar, insights, balcao } = await carregarDados();
 
   const cards = [

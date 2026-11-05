@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/sessao";
 import { podePerfil } from "@/lib/auth/config";
@@ -8,6 +9,7 @@ import { InventariosCard } from "@/components/estoque/inventarios-card";
 export const dynamic = "force-dynamic";
 
 export default async function EstoquePage() {
+  await exigirPerfilPagina("/estoque");
   const usuario = await usuarioAtual();
   const depositos = await prisma.deposito.findMany({
     where: { empresaId: usuario.empresaId, ativo: true },

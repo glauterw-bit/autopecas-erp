@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { PhoneCall } from "lucide-react";
 import { usuarioAtual } from "@/lib/sessao";
@@ -16,6 +17,7 @@ export default async function OficinasEmRiscoPage({
 }: {
   searchParams: Promise<{ minhas?: string; atencao?: string }>;
 }) {
+  await exigirPerfilPagina("/clientes/em-risco");
   const sp = await searchParams;
   const usuario = await usuarioAtual();
   if (!podePerfil(usuario.perfil, "VENDEDOR")) {

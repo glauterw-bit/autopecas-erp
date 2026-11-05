@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +21,7 @@ const statusVariant: Record<string, "muted" | "warning" | "success" | "destructi
 };
 
 export default async function OSPage() {
+  await exigirPerfilPagina("/os");
   const empresaId = await empresaAtualId();
   const ordens = await prisma.ordemServico.findMany({
     where: { empresaId },

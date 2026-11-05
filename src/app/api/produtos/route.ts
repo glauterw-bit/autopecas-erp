@@ -1,3 +1,4 @@
+import { registrarAuditoria } from "@/lib/auth/auditoria";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -50,8 +51,22 @@ export const GET = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
 export const POST = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
   const body = produtoSchema.parse(await req.json());
-  const produto = await prisma.produto.create({
-    data: { ...body, empresaId },
+  const produto = await prisma.$transaction(async (tx) => {
+    const p = await tx.produto.create({ data: { ...body, empresaId } });
+    await registrarAuditoria(tx, {
+      empresaId,
+      usuarioId: usuario.id,
+      acao: "PRODUTO_CRIADO",
+      entidade: "Produto",
+      entidadeId: p.id,
+      antes: null,
+      depois: {
+        sku: p.sku,
+        precoVenda: p.precoVenda.toString(),
+        precoMinimo: p.precoMinimo?.toString() ?? null,
+      },
+    });
+    return p;
   });
   return NextResponse.json(produto, { status: 201 });
 });

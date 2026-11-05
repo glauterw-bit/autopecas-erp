@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { BadgeCheck, Plus, ShieldCheck, Wrench } from "lucide-react";
 import { prisma } from "@/lib/db";
@@ -10,6 +11,7 @@ import { formatBRL } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function ProdutosPage() {
+  await exigirPerfilPagina("/produtos");
   const empresaId = await empresaAtualId();
   const produtos = await prisma.produto.findMany({
     where: { empresaId, ativo: true },

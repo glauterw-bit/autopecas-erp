@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertTriangle, Lock } from "lucide-react";
@@ -21,6 +22,7 @@ const SITUACAO = {
 } as const;
 
 export default async function FichaClientePage({ params }: { params: Promise<{ id: string }> }) {
+  await exigirPerfilPagina("/clientes");
   const { id } = await params;
   const usuario = await usuarioAtual();
   if (!podePerfil(usuario.perfil, "VENDEDOR")) {

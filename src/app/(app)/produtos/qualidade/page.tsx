@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { empresaAtualId } from "@/lib/sessao";
@@ -28,6 +29,7 @@ export default async function QualidadeCadastroPage({
 }: {
   searchParams: Promise<{ problema?: string; q?: string }>;
 }) {
+  await exigirPerfilPagina("/produtos/qualidade");
   const sp = await searchParams;
   const filtro = (FILTROS as string[]).includes(sp.problema ?? "") ? sp.problema! : "TODOS";
   const q = sp.q?.trim() ?? "";

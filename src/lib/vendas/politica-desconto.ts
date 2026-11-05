@@ -27,6 +27,15 @@ export function limiteDescontoPerfil(perfil: string): number | null {
   return limite === undefined ? LIMITE_PADRAO : limite;
 }
 
+/**
+ * Desconto que só passou porque o perfil tem alçada maior que a do balcão
+ * (acima do limite padrão de 5%). Esse desconto vai para o LogAuditoria.
+ */
+export function descontoAcimaDaPolitica(opts: { valorBruto: number; descontoTotal: number }): boolean {
+  if (opts.valorBruto <= 0 || opts.descontoTotal <= 0) return false;
+  return opts.descontoTotal > opts.valorBruto * LIMITE_PADRAO + EPSILON;
+}
+
 // Hierarquia local só para a regra do preço mínimo (GERENTE ou acima).
 const NIVEL: Record<string, number> = {
   ADMIN: 100,

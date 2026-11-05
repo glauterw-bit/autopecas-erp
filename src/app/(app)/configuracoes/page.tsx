@@ -1,3 +1,5 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
+import Link from "next/link";
 import { Building2, Cpu, FileText, KeyRound, Store, Wrench } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
@@ -15,6 +17,7 @@ function statusEnv(v: string | undefined) {
 }
 
 export default async function ConfiguracoesPage() {
+  await exigirPerfilPagina("/configuracoes");
   const empresaId = await empresaAtualId();
   const empresa = await prisma.empresa.findUnique({ where: { id: empresaId } });
   const [usuarios, depositos, marketplaces] = await Promise.all([
@@ -41,6 +44,15 @@ export default async function ConfiguracoesPage() {
         <p className="text-muted-foreground">
           Dados da empresa, integrações, séries fiscais e parâmetros do sistema.
         </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-sm">
+        <Link href="/configuracoes/usuarios" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
+          Usuários e perfis
+        </Link>
+        <Link href="/configuracoes/implantacao" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
+          Implantação
+        </Link>
       </div>
 
       <Card>

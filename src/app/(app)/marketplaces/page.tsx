@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +8,7 @@ import { formatBRL, formatDateTime } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function MarketplacesPage() {
+  await exigirPerfilPagina("/marketplaces");
   const empresaId = await empresaAtualId();
   const contas = await prisma.marketplaceConta.findMany({
     where: { empresaId },

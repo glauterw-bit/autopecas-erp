@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { PhoneCall } from "lucide-react";
 import { prisma } from "@/lib/db";
@@ -10,6 +11,7 @@ import { formatBRL, maskCpfCnpj } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function ClientesPage() {
+  await exigirPerfilPagina("/clientes");
   const usuario = await usuarioAtual();
   const brutos = await prisma.cliente.findMany({
     where: { empresaId: usuario.empresaId },

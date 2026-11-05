@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +8,7 @@ import { formatBRL, formatDate } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function FinanceiroPage() {
+  await exigirPerfilPagina("/financeiro");
   const empresaId = await empresaAtualId();
   const [receber, pagar] = await Promise.all([
     prisma.contaReceber.findMany({

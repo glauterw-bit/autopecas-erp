@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { Fragment } from "react";
 import Link from "next/link";
 import { BookOpen, Download, FileSpreadsheet, ScrollText, Scale, Wallet, TrendingUp } from "lucide-react";
@@ -13,6 +14,7 @@ import { formatBRL } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function ContabilPage() {
+  await exigirPerfilPagina("/contabil");
   const empresaId = await empresaAtualId();
   const hoje = new Date();
   const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
