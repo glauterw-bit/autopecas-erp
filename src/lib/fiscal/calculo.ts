@@ -9,6 +9,11 @@
 //   - PIS/COFINS (cumulativo e não-cumulativo)
 //
 // Fontes: RICMS de cada estado + Tabela CONFAZ + Resolução SF 13/2012.
+//
+// Desde 01/10/2026 autopeça vendida dentro de SP não tem mais ST
+// (Portaria SRE 34/2026 — ver st-sp.ts): calcularItemFiscal ignora a MVA.
+
+import { stVedadaAutopecaSp } from "./st-sp";
 
 export const ALIQUOTAS_ICMS_INTERNAS: Record<string, number> = {
   AC: 19, AL: 19, AP: 18, AM: 20, BA: 20.5, CE: 20, DF: 20, ES: 17, GO: 19,
@@ -152,12 +157,15 @@ export interface CalculoPisCofinsInput {
   regime: "SIMPLES_NACIONAL" | "LUCRO_PRESUMIDO" | "LUCRO_REAL";
   cstPis?: string;
   cstCofins?: string;
+  /** Monofásico (Lei 10.485/2002): revenda a alíquota zero, CST 04. Ver pis-cofins.ts. */
+  monofasico?: boolean;
 }
 export function calcularPisCofins(input: CalculoPisCofinsInput): {
   pis: number;
   cofins: number;
 } {
   if (input.regime === "SIMPLES_NACIONAL") return { pis: 0, cofins: 0 };
+  if (input.monofasico || input.cstPis === "04") return { pis: 0, cofins: 0 };
   if (input.regime === "LUCRO_PRESUMIDO") {
     return {
       pis: (input.baseCalculo * 0.65) / 100,
@@ -185,9 +193,24 @@ export interface ItemFiscalInput {
   regime: "SIMPLES_NACIONAL" | "LUCRO_PRESUMIDO" | "LUCRO_REAL";
   consumidorFinal: boolean;
   contribuinteIcms: boolean;
+  /** Data da operação (padrão: agora). Decide regras com vigência, como o fim da ST em SP. */
+  dataOperacao?: Date;
+  ncm?: string | null;
+  cest?: string | null;
+  monofasico?: boolean;
 }
 
 export function calcularItemFiscal(item: ItemFiscalInput) {
+  const avisos: string[] = [];
+  const semStSp = stVedadaAutopecaSp({
+    ufEmitente: item.ufOrigem,
+    ufDestino: item.ufDestino,
+    dataOperacao: item.dataOperacao ?? new Date(),
+    produto: { ncm: item.ncm, cest: item.cest },
+  });
+  if (semStSp && item.mvaSt) {
+    avisos.push("Autopeça em operação interna de SP desde 01/10/2026: sem ICMS-ST (Portaria SRE 34/2026). MVA ignorada.");
+  }
   const aliquotaInterestadual2 = aliquotaInterestadual(item.ufOrigem, item.ufDestino);
   const icms = calcularIcms({
     valorProdutos: item.valorProdutos,
@@ -202,7 +225,7 @@ export function calcularItemFiscal(item: ItemFiscalInput) {
   const ipi = item.ipiAliquota
     ? calcularIpi(icms.baseCalculo, item.ipiAliquota)
     : 0;
-  const st = item.mvaSt
+  const st = item.mvaSt && !semStSp
     ? calcularIcmsSt({
         valorOperacao: icms.baseCalculo,
         ipi,
@@ -227,6 +250,7 @@ export function calcularItemFiscal(item: ItemFiscalInput) {
   const pisCofins = calcularPisCofins({
     baseCalculo: icms.baseCalculo,
     regime: item.regime,
+    monofasico: item.monofasico,
   });
   return {
     icms,
@@ -237,5 +261,6 @@ export function calcularItemFiscal(item: ItemFiscalInput) {
     cofins: pisCofins.cofins,
     totalImpostos:
       icms.valorIcms + ipi + st.valorIcmsSt + difal.total + pisCofins.pis + pisCofins.cofins,
+    avisos,
   };
 }

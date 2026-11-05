@@ -429,6 +429,12 @@ model Produto {
   cstCofins              String?
   pisAliquota            Decimal? @db.Decimal(6, 4)
   cofinsAliquota         Decimal? @db.Decimal(6, 4)
+  // PIS/COFINS monofásico (Lei 10.485/2002, Anexos I e II): na revenda sai com CST 04.
+  monofasicoPisCofins    Boolean  @default(false)
+  // Reforma tributária (LC 214/2025, NT 2025.002): CST e cClassTrib do IBS/CBS.
+  // Vazio = usa o padrão da empresa (configuracoes.fiscal.ibsCbs); sem nenhum, a emissão bloqueia.
+  cstIbsCbs              String?
+  cClassTrib             String?
 
   // localização física na loja
   localizacao   String? // ex.: "Prateleira A3-B12"
@@ -859,6 +865,14 @@ model ItemNotaEntrada {
   ncm                String?
   precoVendaSugerido Decimal?    @db.Decimal(14, 4)
   margemSugerida     Decimal?    @db.Decimal(6, 4)
+  // ICMS do item na nota de entrada (base do relatório da virada da ST, Portaria CAT 28/2020)
+  cest               String?
+  cstIcms            String?
+  vBcSt              Decimal?    @db.Decimal(14, 2)
+  vIcmsSt            Decimal?    @db.Decimal(14, 2)
+  vBcStRet           Decimal?    @db.Decimal(14, 2)
+  vIcmsStRet         Decimal?    @db.Decimal(14, 2)
+  vIcmsSubstituto    Decimal?    @db.Decimal(14, 2)
 
   @@map("itens_nota_entrada")
 }
@@ -995,6 +1009,11 @@ model ItemVenda {
   observacao         String?
   // alerta MarginGuard
   margemAbaixoMinimo Boolean  @default(false)
+  // Fiscal: número do item (nItem) na nota emitida e retrato do que foi enviado.
+  // A devolução referencia a nota original por item (NT 2025.002, Rej. 321).
+  numeroItemNota          Int?
+  fiscalNota              Json?
+  quantidadeDevolvidaNota Decimal @default(0) @db.Decimal(14, 3)
 
   @@map("itens_venda")
 }
@@ -1137,7 +1156,17 @@ model NotaFiscal {
   valorIpi      Decimal @default(0) @db.Decimal(14, 2)
   valorPis      Decimal @default(0) @db.Decimal(14, 2)
   valorCofins   Decimal @default(0) @db.Decimal(14, 2)
+  valorIbs      Decimal @default(0) @db.Decimal(14, 2)
+  valorCbs      Decimal @default(0) @db.Decimal(14, 2)
   valorTotal    Decimal @db.Decimal(14, 2)
+
+  // 1 = normal, 4 = devolução (finalidade_emissao). tipoDocumento: 0 = entrada, 1 = saída.
+  finalidade        Int     @default(1)
+  tipoDocumento     Int     @default(1)
+  chaveReferenciada String?
+  mensagemSefaz     String?
+  // referência usada no provedor (Focus): /v2/nfe/{ref} para consultar, cancelar e CC-e
+  refProvedor       String?
 
   xmlAutorizado   String? @db.Text
   xmlCancelamento String? @db.Text
@@ -1589,6 +1618,7 @@ model SolicitacaoRMA {
   resolvidaEm               DateTime?
   observacoes               String?         @db.Text
   inspecionadoPor           String?
+  notaDevolucaoId           String? // NF-e de devolução (entrada) referenciando a nota da venda
 
   @@unique([empresaId, numeroRMA])
   @@index([empresaId, status])

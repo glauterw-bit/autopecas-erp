@@ -180,3 +180,27 @@ export async function resolverRMA(opts: {
     return updated;
   });
 }
+
+// NF-e de devolução do RMA
+// ------------------------
+// Emite a NF-e de entrada (finalidade 4) referenciando a nota da venda e o
+// item original (DFeReferenciado — obrigatório desde 03/11/2026, Rej. 321).
+// Regras fiscais em src/lib/nfe/devolucao.ts.
+export async function emitirNotaDevolucaoRMA(rmaId: string, empresaId: string) {
+  const rma = await prisma.solicitacaoRMA.findFirst({ where: { id: rmaId, empresaId } });
+  if (!rma) throw new Error("RMA não encontrado");
+  if (rma.notaDevolucaoId) throw new Error("Este RMA já tem nota de devolução");
+  if (!rma.vendaId || !rma.itemVendaId) {
+    throw new Error("O RMA precisa estar ligado à venda e ao item vendido para emitir a nota de devolução");
+  }
+  if (!["RECEBIDA", "EM_ANALISE", "APROVADA", "CONCLUIDA"].includes(rma.status)) {
+    throw new Error("A peça precisa ter sido recebida antes da nota de devolução");
+  }
+  const { emitirNotaDevolucao } = await import("../nfe/devolucao");
+  return emitirNotaDevolucao({
+    empresaId,
+    vendaId: rma.vendaId,
+    itens: [{ itemVendaId: rma.itemVendaId, quantidade: Number(rma.quantidade) }],
+    rmaId: rma.id,
+  });
+}
