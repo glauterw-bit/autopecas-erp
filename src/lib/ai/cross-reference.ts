@@ -1,5 +1,6 @@
 import { prisma } from "../db";
-import { AI_MODELS, extrairJson, openai } from "./client";
+import { z } from "zod";
+import { chamarEstruturado } from "./chamada";
 
 // SmartCross
 // ==========
@@ -16,8 +17,20 @@ descontinuada) ou NAO_COMPATIVEIS.
 
 Considere: dimensões, especificação técnica, sistema, posição, marca premium vs
 genérica. NÃO marque como equivalente apenas porque o nome se parece.
+Use somente ids da lista de candidatos. "confianca" vai de 0 a 1; "justificativa" é breve.`;
 
-Responda APENAS JSON: {"resultados":[{"id":"string","tipo":"EQUIVALENTE|SIMILAR|SUBSTITUTO|KIT_ALTERNATIVO|NAO_COMPATIVEL","confianca":0.0,"justificativa":"breve"}]}`;
+const TIPOS_CROSS = ["EQUIVALENTE", "SIMILAR", "SUBSTITUTO", "KIT_ALTERNATIVO", "NAO_COMPATIVEL"] as const;
+
+export const crossSchema = z.object({
+  resultados: z.array(
+    z.object({
+      id: z.string(),
+      tipo: z.enum(TIPOS_CROSS),
+      confianca: z.number(),
+      justificativa: z.string(),
+    }),
+  ),
+});
 
 export interface AlvoCross {
   nome: string;
@@ -101,12 +114,15 @@ export async function buscarEquivalentes(
 
   if (candidatos.length === 0) return [];
 
-  // 3. Re-ranking via IA
-  const resp = await openai.chat.completions.create({
-    model: AI_MODELS.default,
-    max_completion_tokens: 1024,
-    response_format: { type: "json_object" },
-    messages: [
+  // 3. Re-ranking via IA (Structured Outputs). A IA só julga; quem grava é o humano.
+  const parsed = await chamarEstruturado({
+    empresaId,
+    recurso: "cross-reference",
+    papel: "default",
+    maxTokens: 2048,
+    schema: crossSchema,
+    nomeSchema: "smartcross",
+    mensagens: [
       { role: "system", content: SYSTEM_SMART_CROSS },
       {
         role: "user",
@@ -116,21 +132,22 @@ ${JSON.stringify(alvo, null, 2)}
 Candidatos:
 ${JSON.stringify(candidatos, null, 2)}
 
-Avalie cada candidato e devolva apenas o JSON.`,
+Avalie cada candidato.`,
       },
     ],
   });
 
-  const txt = resp.choices[0]?.message?.content ?? "";
-  const parsed = extrairJson<{ resultados: ResultadoCross[] }>(txt);
   const byId = new Map(candidatos.map((c) => [c.id, c]));
-  return parsed.resultados
-    .filter((r) => r.tipo !== "NAO_COMPATIVEL")
-    .map((r) => {
-      const c = byId.get(r.id);
-      return { ...r, sku: c?.sku ?? "", nome: c?.nome ?? r.id };
-    })
-    .sort((a, b) => b.confianca - a.confianca);
+  return (
+    parsed.resultados
+      // id que não está entre os candidatos do tenant é descartado (a IA não cria peça).
+      .filter((r) => r.tipo !== "NAO_COMPATIVEL" && byId.has(r.id))
+      .map((r) => {
+        const c = byId.get(r.id)!;
+        return { ...r, confianca: Math.min(Math.max(r.confianca, 0), 1), sku: c.sku, nome: c.nome };
+      })
+      .sort((a, b) => b.confianca - a.confianca)
+  );
 }
 
 // Persiste cross-references aprovados — chamado após confirmação manual

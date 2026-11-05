@@ -1,18 +1,25 @@
 import { NextResponse } from "next/server";
-import type OpenAI from "openai";
+import { z } from "zod";
 import { conversarChat } from "@/lib/ai/chat";
+import { exigirLimiteIA } from "@/lib/ai/limite";
 import { comAuth } from "@/lib/auth/guard";
 
+const corpoSchema = z.object({
+  mensagem: z.string().trim().min(1).max(2000),
+  // Só papéis de conversa; nada de "system"/"tool" vindo do navegador.
+  historico: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) }))
+    .max(40)
+    .optional(),
+});
+
 export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
-  const empresaId = usuario.empresaId;
-  const { mensagem, historico } = (await req.json()) as {
-    mensagem: string;
-    historico?: { role: "user" | "assistant"; content: string }[];
-  };
-  const hist: OpenAI.Chat.ChatCompletionMessageParam[] = (historico ?? []).map((h) => ({
-    role: h.role,
-    content: h.content,
-  }));
-  const out = await conversarChat({ empresaId, mensagemUsuario: mensagem, historico: hist });
-  return NextResponse.json({ resposta: out.resposta });
+  await exigirLimiteIA("chat", usuario.id);
+  const { mensagem, historico } = corpoSchema.parse(await req.json());
+  const out = await conversarChat({
+    empresaId: usuario.empresaId,
+    mensagemUsuario: mensagem,
+    historico: (historico ?? []).slice(-20),
+  });
+  return NextResponse.json({ resposta: out.resposta, precosMascarados: out.precosMascarados });
 });
