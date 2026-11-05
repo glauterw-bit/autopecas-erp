@@ -316,6 +316,7 @@ model VersaoVeiculo {
   aplicacoes      AplicacaoVeicular[]
   veiculosCliente VeiculoCliente[]
 
+  @@index([modeloId])
   @@map("versoes_veiculo")
 }
 
@@ -472,6 +473,10 @@ model Produto {
   @@index([empresaId, codigoFabricante])
   @@index([empresaId, codigoOem])
   @@index([empresaId, ativo])
+  // Busca (migração 20261104150000_indices_busca). Os índices por expressão
+  // busca_texto(nome) e busca_codigos(...) existem só no SQL da migração.
+  @@index([nome(ops: raw("gin_trgm_ops"))], type: Gin, map: "produtos_nome_trgm_idx")
+  @@index([sku(ops: raw("gin_trgm_ops"))], type: Gin, map: "produtos_sku_trgm_idx")
   @@map("produtos")
 }
 
