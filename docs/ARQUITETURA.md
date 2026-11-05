@@ -14,7 +14,7 @@ Documento descrevendo as decisões arquiteturais por trás do AutoPeças ERP e c
 
 ### 2.1 Por que OpenAI?
 
-- **Visão computacional** robusta o suficiente para identificar peças e ler DANFEs (~97% de acurácia em OCR fiscal nos benchmarks de IDP).
+- **Visão computacional** robusta o suficiente para identificar peças e ler DANFEs. A precisão no nosso caso ainda não foi medida; será medida na loja piloto.
 - **Function calling** confiável — viabiliza o CopilotoBalcão que executa funções reais no banco.
 - **Prompt caching automático** para prompts ≥ 1024 tokens repetidos — reduz custo sem precisar marcar manualmente.
 - **Structured outputs / JSON mode** — garante que o OCR e o vision sempre devolvem JSON parseável.
@@ -22,8 +22,9 @@ Documento descrevendo as decisões arquiteturais por trás do AutoPeças ERP e c
 ### 2.2 Por que PostgreSQL + pgvector e não Pinecone/Weaviate?
 
 - Operação local, sem dependência extra.
+- Hoje o `pgvector` está **desligado** no schema (`prisma/schema.prisma:19-21`); a busca semântica ainda não existe. Quando ligado:
 - `pgvector` resolve busca semântica de produto dentro do mesmo banco — operações ACID + similaridade vetorial.
-- `pg_trgm` + `unaccent` cobrem a busca fonética/de digitação que é 80% do uso no PDV.
+- `pg_trgm` + `unaccent` cobrem a busca por nome com erro de digitação, que deve ser a maior parte do uso no PDV (hipótese, não medida).
 - Quando a base crescer, migra-se a parte vetorial para um serviço dedicado sem tocar no core.
 
 ### 2.3 Por que Focus NFe (e não emissão própria)?
@@ -117,7 +118,7 @@ POST /api/ia/ocr-nf  (OpenAI gpt-4o vision)
 - Server Components reduzem JS no cliente — PDV carrega rápido mesmo em rede 3G.
 - Prisma com `select` explícito em queries hot.
 - Índices compostos em `(empresaId, ativo)`, `(empresaId, criadaEm)`, etc.
-- Prompt caching no OpenAI → custo de chamadas idênticas cai ~75%.
+- Prompt caching no OpenAI → reduz o custo de prompts repetidos (economia real a medir).
 - Cache de produtos consultados frequentemente via TanStack Query no cliente.
 
 ## 6. Pontos de extensão

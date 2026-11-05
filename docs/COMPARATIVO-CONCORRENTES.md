@@ -1,113 +1,111 @@
-# Comparativo de funcionalidades — AutoPeças ERP vs concorrentes
+# Comparativo — AutoPeças ERP e concorrentes
 
-Matriz de funcionalidades cruzando o AutoPeças ERP com os principais players do mercado brasileiro de software para auto peças (referências: Linx, Lexos, vhsys, SOFTClass/ERPClass, Bling, Tiny, WinPro, ZionSoft, TECNICON, Omie, ERPPro, ERPSuite).
+**Revisado em 04/11/2026** (bloqueador 8 de `docs/AUDITORIA-2026-11-VENDA.md`).
 
-> Legenda: ✅ disponível · ⚠️ limitado · ❌ não tem · 🆕 inovação proprietária
+## Como ler este arquivo
+
+- A versão anterior marcava com ✅ ou ❌ funções de Lexos, Linx, vhsys, Bling, SOFTClass, WinPro e ZionSoft **sem fonte**. Esses ERPs quase não publicam suas funções (`docs/conhecimento/mercado.md`, seção 2), então aquela grade foi retirada. Dizer que um concorrente "não tem" algo sem prova é publicidade comparativa sem base.
+- Também saíram "🆕 inovação proprietária", "ninguém tem reunido em um único produto" e números sem medição (OCR "97%+", "75% de economia" com cache).
+- O que sabemos dos concorrentes com fonte está em `docs/conhecimento/mercado.md`. Use só o que estiver marcado [E] lá, e confira no site antes de pôr em material de venda.
+
+Legenda do nosso estado:
+- ✅ **funciona**: código e tela prontos (ainda sem loja real operando).
+- 🟡 **beta**: código existe, mas falta tela, teste real ou parte da função.
+- 🚧 **em desenvolvimento**: só a base existe.
+- ❌ **não existe**.
 
 ## Cadastros e catálogo
 
-| Funcionalidade | AutoPeças ERP | Lexos | Linx | vhsys | Bling | SOFTClass |
-|---|---|---|---|---|---|---|
-| Cadastro por SKU + EAN + OEM + Fabricante | ✅ | ✅ | ✅ | ⚠️ | ✅ | ✅ |
-| Aplicação veicular (Montadora→Modelo→Versão) | ✅ | ✅ | ✅ | ❌ | ⚠️ | ✅ |
-| Cross-reference (peça equivalente) | ✅ + IA 🆕 | ⚠️ manual | ⚠️ manual | ❌ | ❌ | ⚠️ manual |
-| Catálogo TecDoc / Cinoa importável | ✅ planejado | ✅ | ✅ | ❌ | ❌ | ⚠️ |
-| Curva ABC automática | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ✅ |
-| Embedding vetorial p/ busca semântica | ✅ pgvector 🆕 | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Identificação por foto (vision) | ✅ AutoVision 🆕 | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Função | Estado | Evidência / o que falta |
+|---|---|---|
+| Cadastro por SKU, EAN, OEM e fabricante | 🟡 | campos no schema; criar e editar produto pela tela ainda não existe (`src/app/(app)/produtos/page.tsx:31` aponta para `/produtos/novo`, que não existe) |
+| Aplicação veicular (montadora → modelo → versão) | ✅ estrutura | `prisma/schema.prisma`, tela `/veiculos` |
+| Busca por aplicação | 🟡 | existe em `src/lib/catalogo/busca.ts:59`, mas o PDV não passa a versão do veículo |
+| Equivalência de peça com IA (SmartCross) | 🚧 | só API (`src/lib/ai/cross-reference.ts`); confirmação humana obrigatória |
+| Importação TecDoc | 🟡 | `src/lib/catalogo/tecdoc*.ts`; depende de licença |
+| Curva ABC | ✅ | campo e lista em `/produtos` |
+| Busca semântica (pgvector) | ❌ | o pgvector está desligado (`prisma/schema.prisma:19-21` e `:448`) |
+| Identificação de peça por foto (AutoVision) | 🚧 | só API (`src/lib/ai/vision.ts`); o botão do PDV não está ligado (`src/components/pdv/pdv-client.tsx:328`) |
 
-## PDV / Frente de Caixa
+## PDV / frente de caixa
 
-| Funcionalidade | AutoPeças ERP | Lexos | Linx | vhsys | WinPro | ZionSoft |
-|---|---|---|---|---|---|---|
-| Bipagem código de barras | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Busca por placa (Sinesp/API) | ✅ 🆕 | ❌ | ⚠️ | ❌ | ❌ | ❌ |
-| Filtro automático por aplicação | ✅ | ✅ | ⚠️ | ❌ | ⚠️ | ⚠️ |
-| Atalhos de teclado (F2-F9) | ✅ | ✅ | ✅ | ⚠️ | ✅ | ✅ |
-| MarginGuard (bloqueio inline) | ✅ 🆕 | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Identificação peça por foto | ✅ AutoVision 🆕 | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Voz / busca por comando | ✅ roadmap | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Função | Estado | Evidência / o que falta |
+|---|---|---|
+| Leitor de código de barras | ✅ | `src/components/pdv/pdv-client.tsx` |
+| Atalhos de teclado (F2 cliente, F6 desconto, F9 pagar) | ✅ | `pdv-client.tsx:51-55,295-304` |
+| Busca por placa | 🟡 | identifica marca, modelo e ano com provedor pago (`src/lib/catalogo/placa.ts:33`); não filtra as peças |
+| Trava de desconto por perfil e preço mínimo | ✅ | `src/app/api/vendas/route.ts:143,175` e `src/lib/vendas/politica-desconto.ts` |
+| MarginGuard | 🟡 | só **marca** item abaixo da margem, sem bloquear e sem considerar o desconto (`src/app/api/vendas/route.ts:155`) |
+| Busca por voz | ❌ | não há código de voz |
 
 ## Estoque e compras
 
-| Funcionalidade | AutoPeças ERP | Concorrência |
+| Função | Estado | Evidência / o que falta |
 |---|---|---|
-| Multi-depósito | ✅ | ✅ |
-| Inventário rotativo | ✅ | ✅ |
-| Ponto de reposição automático | ✅ | ✅ (alguns) |
-| **Previsão de demanda híbrida (ML + IA)** | ✅ StockPredict 🆕 | ❌ |
-| Reserva de estoque por pedido marketplace | ✅ | ⚠️ |
-| **OCR de NF de entrada via IA** | ✅ NF-IA 🆕 (gpt-4o) | ⚠️ (algumas têm OCR mas exigem ajuste manual constante) |
-| Sugestão de preço de venda na entrada | ✅ | ⚠️ |
+| Multi-depósito, transferência e inventário | 🟡 | `src/components/estoque/` |
+| Sugestão de compra e venda perdida | 🟡 | `/compras/sugestao` |
+| Previsão de demanda (StockPredict) | 🟡 | `src/lib/ai/prediction.ts`; a IA cita sazonalidade, **sem dado de clima real**; acerto a medir |
+| Entrada por XML de NF-e | 🟡 | `src/lib/nfe/importar-xml.ts`; sem tela em Compras |
+| Leitura de DANFE por IA (NF-IA) | 🚧 | só API (`src/lib/ai/ocr-nf.ts`); a área de envio em `/compras` ainda não funciona; precisão a medir na loja piloto |
+| Sugestão de preço de venda na entrada | ❌ | não implementada no NF-IA |
 
 ## Fiscal
 
-| Funcionalidade | AutoPeças ERP |
-|---|---|
-| NF-e (modelo 55) | ✅ via Focus NFe |
-| NFC-e (modelo 65) | ✅ |
-| SAT (modelo 59) | ✅ |
-| Carta de correção | ✅ |
-| Inutilização | ✅ |
-| Multi-CFOP por estado | ✅ |
-| Substituição tributária por NCM | ✅ |
-
-> Equivalente à maioria dos concorrentes — pré-requisito do mercado.
+| Função | Estado | Evidência / o que falta |
+|---|---|---|
+| NF-e 55 e NFC-e 65 | 🟡 | emissão ao faturar (`src/app/api/vendas/[id]/faturar/route.ts`) via Focus NFe; configuração por loja e IBS/CBS pendentes |
+| Cancelamento, CC-e, inutilização | 🟡 | só API (`src/lib/nfe/operacoes.ts`); a tela fiscal mostra o endereço da API no lugar do botão |
+| ICMS-ST, DIFAL, IPI, PIS/COFINS | 🟡 | `src/lib/fiscal/calculo.ts` com testes; o emissor ainda manda PIS/COFINS fixo |
+| SPED (ECD, EFD-ICMS/IPI, Contribuições) | 🟡 | gera TXT (`src/lib/contabil/sped.ts`); **não validado no PVA** |
+| SAT (modelo 59) | ❌ para SP | o SAT acabou em SP em 01/01/2026 (Portaria SRE 79/2024, `docs/conhecimento/fiscal-tributario.md`); em SP o balcão usa NFC-e |
 
 ## Marketplaces
 
-| Funcionalidade | AutoPeças ERP | Bling/Tiny | Linx | vhsys |
-|---|---|---|---|---|
-| Mercado Livre (anúncios, pedidos) | ✅ | ✅ | ✅ | ⚠️ |
-| **Compatibilidade ML (universal/catálogo/atributos)** | ✅ | ✅ | ⚠️ | ❌ |
-| Shopee | ✅ | ✅ | ⚠️ | ⚠️ |
-| Amazon SP-API | ✅ | ✅ | ✅ | ❌ |
-| Magalu | ✅ planejado | ✅ | ✅ | ⚠️ |
-| **OmniInbox (mensagens unificadas)** | ✅ 🆕 | ❌ | ❌ | ❌ |
-| **IA respondendo automaticamente** | ✅ 🆕 | ❌ | ❌ | ❌ |
-| Sincronia bidirecional de estoque | ✅ | ✅ | ✅ | ✅ |
+| Função | Estado | Evidência / o que falta |
+|---|---|---|
+| Mercado Livre (anúncios, pedidos, perguntas) | 🟡 | `src/lib/marketplaces/mercado-livre.ts`; para em 1.000 anúncios (`MAX_PAGINAS = 20`, linha 25); sem teste com conta real |
+| Compatibilidade de autopeças no ML | 🟡 | mesmo arquivo; sem teste com conta real |
+| Shopee, Amazon | 🟡 | `shopee.ts`, `amazon.ts`; sem teste com conta real |
+| Magalu | 🟡 | `magalu.ts`; envio de mensagem não implementado |
+| OmniInbox (mensagens num lugar só) | 🚧 | lista mensagens com rascunho da IA em `/marketplaces`; não responde pela tela |
+| IA respondendo sozinha | ❌ (de propósito) | a IA só sugere; quem atende revisa e envia |
+| WhatsApp | 🚧 | a entrada vai para a primeira empresa do banco (`src/app/api/ia/whatsapp/route.ts:50`) |
 
 ## Financeiro
 
-| Funcionalidade | AutoPeças ERP |
-|---|---|
-| Contas a pagar/receber | ✅ |
-| Fluxo de caixa | ✅ |
-| Conciliação bancária | ✅ |
-| Crediário próprio | ✅ |
-| Pix / cartão / boleto / dinheiro | ✅ |
-| Múltiplas contas bancárias | ✅ |
-| Plano de contas hierárquico | ✅ |
-| DRE | ✅ |
-| **Score de crédito do cliente via IA** | ✅ CreditSense 🆕 |
-
-## Inteligência Artificial — onde realmente nos descolamos
-
-| Recurso de IA | AutoPeças ERP | Mercado |
+| Função | Estado | Evidência / o que falta |
 |---|---|---|
-| Identificação de peça por foto (vision) | ✅ OpenAI gpt-4o | ❌ |
-| OCR de NF-e com 97%+ via IA | ✅ OpenAI gpt-4o | ⚠️ (alguns têm OCR tradicional, sem visão semântica) |
-| Previsão de demanda híbrida (ML + LLM) | ✅ OpenAI gpt-4o-mini | ❌ |
-| Cross-reference inteligente | ✅ OpenAI gpt-4o | ❌ |
-| Chat com tool-use no catálogo | ✅ OpenAI gpt-4o | ❌ |
-| Insights persistidos com feedback humano | ✅ | ❌ |
-| Prompt caching (75% economia) | ✅ | n/a |
-| Score de crédito IA | ✅ planejado | ❌ |
-| WhatsApp Business com IA | ✅ planejado | ❌ |
+| Contas a pagar e a receber | 🟡 | lista em `/financeiro`; baixa pela tela ainda não existe |
+| Caixa (abertura, sangria, suprimento, fechamento) | ✅ | `src/components/caixa/caixa-client.tsx` |
+| Conciliação OFX | 🟡 | `src/lib/financeiro/`; sem tela de importação |
+| Crediário | 🟡 | `src/lib/vendas/crediario.ts` |
+| Pix dinâmico | 🟡 | `src/lib/pagamentos/pix.ts`; sem teste com PSP real |
+| DRE e plano de contas | 🟡 | `src/lib/contabil/`; conferência com contador pendente |
+| Score de crédito do cliente por IA | ❌ | a coluna "Score IA" em `/clientes` mostra um campo que nenhum código calcula |
 
-## Resumo executivo
+## IA (OpenAI, `src/lib/ai/client.ts`)
 
-**O que o mercado tem hoje:** PDV razoável, NF-e funcional, integração marketplace via hubs terceiros, busca por aplicação veicular adequada, alguns têm OCR de NF de entrada.
+Todos os recursos de IA estão em beta ou em desenvolvimento, e nenhum tem precisão medida. A regra do produto vale para todos: a IA sugere e a pessoa confirma, e a IA nunca inventa preço ou estoque.
 
-**O que ninguém tem reunido em um único produto:**
+| Recurso | Estado |
+|---|---|
+| AutoVision (foto → peça) | 🚧 só API |
+| NF-IA (leitura de DANFE) | 🚧 só API |
+| StockPredict | 🟡 job diário |
+| SmartCross | 🚧 só API |
+| Copiloto de balcão (chat com ferramentas) | 🚧 só API; isolamento entre empresas a corrigir (auditoria, bloqueador 1) |
+| Insights com retorno da pessoa (útil / não útil) | 🟡 |
 
-1. Identificação de peça por **foto**.
-2. **OCR semântico** de NF-e (entende contexto, não só posição).
-3. **Previsão de demanda** com fatores externos explicados em linguagem natural.
-4. **Cross-reference** via julgamento técnico da IA.
-5. **OmniInbox** com IA respondendo marketplaces.
-6. **MarginGuard** inline no PDV protegendo margem em tempo real.
-7. Estrutura multi-tenant + multi-empresa + auditoria desde o dia 1.
-8. Vetor `pgvector` para busca semântica nativa no banco.
+## O que pode virar argumento de venda, e com que cuidado
 
-Esses 8 pontos são o que justificam o ticket premium da plataforma e o que torna ela inviável de "copiar em 3 meses" pelos concorrentes — exige reescrever schema, escolher provedor de IA, desenhar prompts, treinar a operação para confiar nas sugestões.
+Sem pesquisa que prove exclusividade, não dizemos "ninguém mais tem". O que dá para dizer com honestidade:
+
+1. Feito para autopeças: aplicação veicular, OEM e equivalência estão no centro do cadastro.
+2. IA que sugere e deixa a pessoa decidir, sem inventar preço nem estoque.
+3. Fiscal com regra explicada e bloqueio na dúvida, em vez de deixar passar (objetivo do produto; hoje parcial).
+
+Evidência sobre concorrentes que hoje temos com fonte (`docs/conhecimento/mercado.md`):
+- Os ERPs de autopeças quase não publicam preço nem funções [E].
+- "Nenhum mostra publicamente B2B com oficina ou registro de venda perdida" e "não achamos ERP brasileiro de autopeças com IA anunciada de forma concreta" são **hipóteses** [H], não fatos. Não use como "somos os únicos".
+
+Números de ganho (tempo de balcão, erro de nota, ruptura) serão medidos na loja piloto e só entram em material de venda depois disso.

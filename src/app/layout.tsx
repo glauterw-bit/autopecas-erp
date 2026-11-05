@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AutoPeças ERP — Sistema completo com IA",
+  title: "AutoPeças ERP",
   description:
-    "ERP omnichannel para auto peças com IA Claude para visão computacional, OCR de NF-e, previsão de demanda e integração com marketplaces.",
+    "ERP para lojas de autopeças: balcão, estoque, fiscal, financeiro e marketplaces, com IA da OpenAI que sugere e a pessoa confirma. Em fase de piloto.",
 };
 
 // Aplica o tema salvo antes da pintura para evitar flash (FOUC).
