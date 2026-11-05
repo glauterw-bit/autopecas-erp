@@ -6,6 +6,7 @@
 //   - StockPredict batch: 3h da manhã
 //   - MarginGuard batch: 4h da manhã
 //   - TecDoc sync: dia 1 às 2h
+//   - Consulta de NF-e em processamento na Focus: a cada minuto
 //
 // Cada worker é autônomo: monta o handler e registra-se no Redis.
 
@@ -14,6 +15,7 @@ import { syncMarketplacesWorker } from "./jobs/sync-marketplaces";
 import { stockPredictWorker } from "./jobs/stockpredict";
 import { marginGuardWorker } from "./jobs/margin-guard";
 import { tecdocCronWorker } from "./jobs/tecdoc-cron";
+import { nfeConsultaWorker } from "./jobs/nfe-consulta";
 
 async function agendarSchedulers() {
   await queues.marketplaces.add(
@@ -36,6 +38,11 @@ async function agendarSchedulers() {
     {},
     { repeat: { pattern: "0 2 1 * *" }, jobId: "sched:tecdoc-mensal" },
   );
+  await queues.nfeconsulta.add(
+    "pendentes",
+    { limite: 50 },
+    { repeat: { pattern: "* * * * *" }, jobId: "sched:nfe-consulta-1min" },
+  );
 }
 
 async function main() {
@@ -46,12 +53,14 @@ async function main() {
   console.log("  - ai:stockpredict     03:00 diariamente");
   console.log("  - ai:marginguard      04:00 diariamente");
   console.log("  - catalogo:tecdoc     02:00 dia 1 de cada mês");
+  console.log("  - fiscal:nfe-consulta a cada minuto (notas EMITINDO > 1 min, até 50)");
 
   const workers = [
     syncMarketplacesWorker,
     stockPredictWorker,
     marginGuardWorker,
     tecdocCronWorker,
+    nfeConsultaWorker,
   ];
 
   // Logs de eventos

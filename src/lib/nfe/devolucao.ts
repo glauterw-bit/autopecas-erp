@@ -14,10 +14,13 @@
 //   https://www.confaz.fazenda.gov.br/legislacao/ajustes/2001/AJ_007_01
 // CFOP original fora desta tabela → bloqueia (o contador decide).
 
+import { createHash } from "node:crypto";
+import { Prisma, type NotaFiscal } from "@prisma/client";
 import { prisma } from "../db";
 import { ApiError } from "../auth/guard";
 import { centavosParaReais, reaisParaCentavos } from "../fiscal/centavos";
-import { destinatarioDoCliente, emitenteDaEmpresa, enviarFocus, numeroProvisorio, statusDaResposta, type RetratoFiscalItem } from "./emissor";
+import { configFocusComToken, destinatarioDoCliente, emitenteDaEmpresa, enviarFocus, numeroProvisorio, statusDaResposta, type RetratoFiscalItem } from "./emissor";
+import { liberarReservaDevolucao } from "./sincronizar";
 import { montarNota, type DadosNota, type ItemEntradaNota } from "./payload";
 import { itensDoXmlNfe } from "./xml-nfe";
 
@@ -63,8 +66,14 @@ export function montarItensDevolucao(opts: {
   const xmlItens = opts.xmlOriginal ? itensDoXmlNfe(opts.xmlOriginal) : [];
   const itens: ItemEntradaNota[] = [];
 
+  const vistos = new Set<string>();
   for (const { original: o, quantidade } of opts.itens) {
     const rotulo = `${o.sku} (${o.nome})`;
+    if (vistos.has(o.itemVendaId)) {
+      erros.push(`${rotulo}: o mesmo item aparece mais de uma vez no pedido; junte as quantidades numa linha só.`);
+      continue;
+    }
+    vistos.add(o.itemVendaId);
     const vendida = Number(o.quantidadeVendida);
     const disponivel = vendida - Number(o.quantidadeJaDevolvida);
     if (!(quantidade > 0)) {
@@ -126,6 +135,39 @@ export function montarItensDevolucao(opts: {
   return { itens, erros };
 }
 
+/** Junta pedidos repetidos do mesmo item (soma em milésimos) e ordena por id. */
+export function agruparPedidos(
+  itens: Array<{ itemVendaId: string; quantidade: number }>,
+): Array<{ itemVendaId: string; quantidade: number }> {
+  const m = new Map<string, number>();
+  for (const it of itens) {
+    m.set(it.itemVendaId, (m.get(it.itemVendaId) ?? 0) + Math.round(Number(it.quantidade) * 1000));
+  }
+  return [...m.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([itemVendaId, mil]) => ({ itemVendaId, quantidade: mil / 1000 }));
+}
+
+/**
+ * Referência na Focus determinística para o pedido de devolução: a mesma
+ * venda/RMA, os mesmos itens e quantidades, partindo do mesmo "já devolvido",
+ * geram sempre o mesmo ref. Repetir o pedido (duplo clique, nova tentativa
+ * depois de queda) não cria outra nota; uma segunda devolução parcial legítima
+ * parte de outro "já devolvido" e ganha outro ref.
+ */
+export function refDevolucao(opts: {
+  empresaId: string;
+  vendaId: string;
+  rmaId?: string;
+  itens: Array<{ itemVendaId: string; quantidade: number; jaDevolvidoAntes: number | string }>;
+}): string {
+  const partes = [...opts.itens]
+    .sort((a, b) => a.itemVendaId.localeCompare(b.itemVendaId))
+    .map((i) => `${i.itemVendaId}:${Math.round(Number(i.quantidade) * 1000)}:${Math.round(Number(i.jaDevolvidoAntes) * 1000)}`);
+  const base = [opts.empresaId, opts.vendaId, opts.rmaId ?? "", ...partes].join("|");
+  return `devolucao-${createHash("sha256").update(base).digest("hex").slice(0, 32)}`;
+}
+
 export async function emitirNotaDevolucao(opts: {
   empresaId: string;
   vendaId: string;
@@ -149,10 +191,14 @@ export async function emitirNotaDevolucao(opts: {
   if (!venda.cliente) {
     throw new ApiError(422, "Cadastre o cliente (CPF/CNPJ e endereço) na venda antes de emitir a NF-e de devolução.");
   }
+  // Sem token não grava nada (nem reserva, nem nota).
+  configFocusComToken(venda.empresa);
 
+  // O mesmo item pedido duas vezes vira uma linha só, com a soma.
+  const pedidos = agruparPedidos(opts.itens);
   const porId = new Map(venda.itens.map((i) => [i.id, i]));
   const selecionados: Array<{ original: ItemOriginal; quantidade: number }> = [];
-  for (const pedido of opts.itens) {
+  for (const pedido of pedidos) {
     const iv = porId.get(pedido.itemVendaId);
     if (!iv) throw new ApiError(404, "Item da venda não encontrado");
     selecionados.push({
@@ -197,26 +243,57 @@ export async function emitirNotaDevolucao(opts: {
   const montada = montarNota(dados);
   if (!montada.ok) throw new ApiError(422, `Devolução bloqueada:\n- ${montada.erros.join("\n- ")}`);
 
-  const ref = `devolucao-${opts.rmaId ?? venda.id}-${Date.now()}`;
-  const { cfg, http, data } = await enviarFocus({ empresa: venda.empresa, modelo: "55", ref, payload: montada.payload });
-  const st = statusDaResposta(http, data);
-  const t = montada.totais;
-  const numero = Number(data.numero) || (await numeroProvisorio(venda.empresaId));
+  const ref = refDevolucao({
+    empresaId: venda.empresaId,
+    vendaId: venda.id,
+    rmaId: opts.rmaId,
+    itens: selecionados.map((x) => ({
+      itemVendaId: x.original.itemVendaId,
+      quantidade: x.quantidade,
+      jaDevolvidoAntes: x.original.quantidadeJaDevolvida,
+    })),
+  });
 
-  const nota = await prisma.$transaction(async (tx) => {
+  // Mesmo pedido já em andamento ou autorizado: devolve a nota que existe.
+  const existente = await prisma.notaFiscal.findFirst({
+    where: { empresaId: venda.empresaId, refProvedor: ref, status: { in: ["EMITINDO", "AUTORIZADA"] } },
+  });
+  if (existente) return existente;
+
+  const cfg = configFocusComToken(venda.empresa);
+  const t = montada.totais;
+  const reservados = pedidos.map((p) => ({ itemVendaId: p.itemVendaId, quantidade: p.quantidade }));
+  const numeroTemp = await numeroProvisorio(venda.empresaId);
+
+  // 1) Reserva + nota EMITINDO + liga o RMA, numa transação, ANTES da Focus.
+  const resultado = await prisma.$transaction(async (tx) => {
+    for (const x of selecionados) {
+      const q = new Prisma.Decimal(x.quantidade);
+      const ja = new Prisma.Decimal(x.original.quantidadeJaDevolvida);
+      // Condicional: só reserva se ninguém mexeu desde a leitura e se cabe.
+      const n = await tx.$executeRaw`
+        UPDATE itens_venda
+           SET "quantidadeDevolvidaNota" = "quantidadeDevolvidaNota" + ${q}
+         WHERE id = ${x.original.itemVendaId}
+           AND "vendaId" = ${venda.id}
+           AND "quantidadeDevolvidaNota" = ${ja}
+           AND "quantidadeDevolvidaNota" + ${q} <= quantidade`;
+      if (n === 0) throw new ConflitoReserva();
+    }
     const criada = await tx.notaFiscal.create({
       data: {
         empresaId: venda.empresaId,
         clienteId: venda.clienteId,
         modelo: "NFE_55",
         serie: cfg.serieNfe,
-        numero,
+        numero: numeroTemp,
         ambiente: cfg.ambiente === "producao" ? "PRODUCAO" : "HOMOLOGACAO",
         naturezaOperacao: "DEVOLUCAO DE VENDA",
         refProvedor: ref,
         finalidade: 4,
         tipoDocumento: 0,
         chaveReferenciada: original.chaveAcesso,
+        devolucaoItens: reservados,
         valorProdutos: centavosParaReais(t.produtosCentavos),
         valorDesconto: centavosParaReais(t.descontoCentavos),
         valorIcms: centavosParaReais(t.icmsCentavos),
@@ -225,32 +302,73 @@ export async function emitirNotaDevolucao(opts: {
         valorIbs: centavosParaReais(t.ibsCentavos),
         valorCbs: centavosParaReais(t.cbsCentavos),
         valorTotal: centavosParaReais(t.totalCentavos),
-        status: st.status,
-        mensagemSefaz: st.mensagem,
-        chaveAcesso: data.chave_nfe ?? null,
-        protocolo: data.protocolo ?? null,
-        xmlAutorizado: data.xml ?? null,
-        danfeUrl: data.url_danfe ?? null,
+        status: "EMITINDO",
       },
     });
-    if (st.status === "REJEITADA" || st.status === "DENEGADA") return criada;
-    for (const pedido of opts.itens) {
-      await tx.itemVenda.update({
-        where: { id: pedido.itemVendaId },
-        data: { quantidadeDevolvidaNota: { increment: pedido.quantidade } },
-      });
-    }
     if (opts.rmaId) {
-      await tx.solicitacaoRMA.updateMany({
-        where: { id: opts.rmaId, empresaId: opts.empresaId },
+      // Dentro da transação: só liga se o RMA ainda não tem nota (dois cliques → uma nota).
+      const r = await tx.solicitacaoRMA.updateMany({
+        where: { id: opts.rmaId, empresaId: opts.empresaId, notaDevolucaoId: null },
         data: { notaDevolucaoId: criada.id },
       });
+      if (r.count === 0) throw new ApiError(422, "Este RMA já tem nota de devolução");
     }
-    return criada;
+    return { nota: criada, nova: true as const };
+  }).catch(async (e): Promise<{ nota: NotaFiscal; nova: false }> => {
+    if (e instanceof ConflitoReserva) {
+      // Duplo clique: a outra chamada já reservou com este mesmo ref.
+      const outra = await prisma.notaFiscal.findFirst({
+        where: { empresaId: venda.empresaId, refProvedor: ref, status: { in: ["EMITINDO", "AUTORIZADA"] } },
+      });
+      if (outra) return { nota: outra, nova: false };
+      throw new ApiError(409, "Outra devolução deste item foi registrada agora. Recarregue a venda e confira o saldo.");
+    }
+    throw e;
   });
+  if (!resultado.nova) return resultado.nota;
+  const reserva = resultado.nota;
 
+  // 2) Envia. Sem resposta (queda de rede): a nota fica EMITINDO e a consulta
+  //    (job/botão) decide; se a Focus não a tiver, a reserva é devolvida lá.
+  let http: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let data: Record<string, any>;
+  try {
+    ({ http, data } = await enviarFocus({ empresa: venda.empresa, modelo: "55", ref, payload: montada.payload }));
+  } catch {
+    return prisma.notaFiscal.update({
+      where: { id: reserva.id },
+      data: { mensagemSefaz: "Sem resposta da Focus NFe no envio. Use \"Atualizar situação\" em alguns minutos." },
+    });
+  }
+  const st = statusDaResposta(http, data);
+
+  // 3) Recusou ou deu erro: devolve a reserva e desliga o RMA.
   if (st.status === "REJEITADA" || st.status === "DENEGADA") {
+    await prisma.$transaction(async (tx) => {
+      const r = await tx.notaFiscal.updateMany({
+        where: { id: reserva.id, status: "EMITINDO" },
+        data: { status: st.status, mensagemSefaz: st.mensagem },
+      });
+      if (r.count) await liberarReservaDevolucao(tx, reserva);
+    });
     throw new ApiError(422, `A SEFAZ/Focus recusou a devolução: ${st.mensagem}`);
   }
-  return nota;
+
+  // 4) Autorizada na hora ou ainda processando (o normal na NF-e 55).
+  return prisma.notaFiscal.update({
+    where: { id: reserva.id },
+    data: {
+      status: st.status,
+      mensagemSefaz: st.mensagem,
+      ...(Number(data.numero) ? { numero: Number(data.numero) } : {}),
+      chaveAcesso: data.chave_nfe ?? null,
+      protocolo: data.protocolo ?? null,
+      xmlAutorizado: data.xml ?? null,
+      danfeUrl: data.url_danfe ?? null,
+      ...(st.status === "AUTORIZADA" ? { dataAutorizacao: new Date() } : {}),
+    },
+  });
 }
+
+class ConflitoReserva extends Error {}

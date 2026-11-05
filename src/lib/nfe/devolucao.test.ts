@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cfopDevolucao, montarItensDevolucao, type ItemOriginal } from "./devolucao";
+import { agruparPedidos, cfopDevolucao, montarItensDevolucao, refDevolucao, type ItemOriginal } from "./devolucao";
 import { montarNota, type DadosNota } from "./payload";
 import { itensDoXmlNfe } from "./xml-nfe";
 
@@ -210,5 +210,41 @@ describe("itensDoXmlNfe — ST por item (base da CAT 28/2020)", () => {
       <imposto><ICMS><ICMSSN500><orig>0</orig><CSOSN>500</CSOSN><vBCSTRet>500.00</vBCSTRet><pST>18.00</pST><vICMSSubstituto>30.00</vICMSSubstituto><vICMSSTRet>60.00</vICMSSTRet></ICMSSN500></ICMS></imposto></det></infNFe></NFe></nfeProc>`;
     const [i] = itensDoXmlNfe(xml);
     expect(i).toMatchObject({ nItem: 1, cProd: "X1", cstIcms: "500", vBcStRet: 500, vIcmsStRet: 60, vIcmsSubstituto: 30, quantidade: 10 });
+  });
+});
+
+describe("pedido de devolução: item repetido e ref determinístico", () => {
+  it("soma o mesmo item pedido duas vezes (2 vendidas, [{iv,2},{iv,2}] → 4, bloqueia)", () => {
+    const pedidos = agruparPedidos([
+      { itemVendaId: "iv1", quantidade: 2 },
+      { itemVendaId: "iv1", quantidade: 2 },
+    ]);
+    expect(pedidos).toEqual([{ itemVendaId: "iv1", quantidade: 4 }]);
+    const { itens, erros } = montarItensDevolucao({
+      chaveOriginal: CHAVE,
+      itens: pedidos.map((p) => ({ original, quantidade: p.quantidade })),
+    });
+    expect(itens).toEqual([]);
+    expect(erros[0]).toContain("só 2 unidade(s)");
+  });
+  it("soma em milésimos sem erro de float (0,1 + 0,2 = 0,3)", () => {
+    expect(agruparPedidos([{ itemVendaId: "b", quantidade: 0.1 }, { itemVendaId: "a", quantidade: 1 }, { itemVendaId: "b", quantidade: 0.2 }]))
+      .toEqual([{ itemVendaId: "a", quantidade: 1 }, { itemVendaId: "b", quantidade: 0.3 }]);
+  });
+  it("o montador recusa o mesmo item duas vezes, mesmo que caiba", () => {
+    const { erros } = montarItensDevolucao({
+      chaveOriginal: CHAVE,
+      itens: [{ original, quantidade: 1 }, { original, quantidade: 1 }],
+    });
+    expect(erros[0]).toContain("mais de uma vez");
+  });
+  it("ref: mesmo pedido → mesmo ref; ordem não importa; já devolvido diferente → outro ref", () => {
+    const base = { empresaId: "E", vendaId: "V", itens: [{ itemVendaId: "a", quantidade: 1, jaDevolvidoAntes: "0" }, { itemVendaId: "b", quantidade: 2, jaDevolvidoAntes: 0 }] };
+    const r1 = refDevolucao(base);
+    expect(r1).toMatch(/^devolucao-[0-9a-f]{32}$/);
+    expect(refDevolucao({ ...base, itens: [...base.itens].reverse() })).toBe(r1);
+    expect(refDevolucao({ ...base, itens: [{ ...base.itens[0], jaDevolvidoAntes: "1.000" }, base.itens[1]] })).not.toBe(r1);
+    expect(refDevolucao({ ...base, rmaId: "R" })).not.toBe(r1);
+    expect(refDevolucao({ ...base, itens: [{ ...base.itens[0], quantidade: 2 }, base.itens[1]] })).not.toBe(r1);
   });
 });

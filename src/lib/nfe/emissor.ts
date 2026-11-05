@@ -89,13 +89,22 @@ export async function numeroProvisorio(empresaId: string): Promise<number> {
   return -((n + 1) * 1000 + Math.floor(Math.random() * 1000));
 }
 
+export const MSG_SEM_TOKEN_FOCUS = "Emissão de nota não configurada: falta o token da Focus NFe desta empresa";
+
+/** Configuração da Focus com token; sem token, bloqueia antes de gravar qualquer nota. */
+export function configFocusComToken(empresa: { cnpj: string; configuracoes?: unknown }) {
+  const cfg = configFocus(empresa);
+  if (!cfg.token.trim()) throw new ApiError(422, MSG_SEM_TOKEN_FOCUS);
+  return cfg;
+}
+
 export async function enviarFocus(opts: {
   empresa: { cnpj: string; configuracoes: unknown };
   modelo: "55" | "65";
   ref: string;
   payload: Record<string, unknown>;
 }) {
-  const cfg = configFocus(opts.empresa);
+  const cfg = configFocusComToken(opts.empresa);
   const url = `${FOCUS_BASE[cfg.ambiente]}/v2/${opts.modelo === "65" ? "nfce" : "nfe"}?ref=${opts.ref}`;
   const resp = await axios.post(url, opts.payload, {
     auth: { username: cfg.token, password: "" },
@@ -133,6 +142,7 @@ export async function emitirNotaFiscal(vendaId: string, empresaId?: string) {
   if (venda.status === "CANCELADA")
     throw new ApiError(422, "Não é possível emitir nota para venda cancelada");
   if (venda.notaFiscalId) throw new ApiError(422, "Venda já possui nota emitida");
+  configFocusComToken(venda.empresa);
 
   const modelo: "55" | "65" = venda.origem === "BALCAO" || venda.origem === "PDV" ? "65" : "55";
   const dados: DadosNota = {

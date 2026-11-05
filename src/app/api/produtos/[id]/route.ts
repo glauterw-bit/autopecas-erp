@@ -2,14 +2,17 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
+import { podePerfil } from "@/lib/auth/config";
 import { registrarAuditoria } from "@/lib/crm/auditoria";
 import { eanValido, ncmValido, problemasDoProduto } from "@/lib/crm/qualidade-cadastro";
 
 // Ficha do produto para corrigir cadastro
 // =======================================
 // GET   (ESTOQUISTA): dados de cadastro, aplicações e problemas de qualidade.
-// PATCH (ESTOQUISTA): corrige campos de CADASTRO (códigos, NCM, nome,
-//   localização). Preço e estoque NÃO passam por aqui. Grava LogAuditoria.
+// PATCH (ESTOQUISTA): corrige campos de CADASTRO (códigos, nome, localização).
+//   Campos FISCAIS (NCM, CEST, CST/CSOSN, CFOP, origem, PIS/COFINS, IBS/CBS)
+//   exigem FINANCEIRO ou acima. Preço e estoque NÃO passam por aqui.
+//   Grava LogAuditoria com antes e depois.
 //   Mudar código do fabricante/EAN não derruba o selo; o selo trata de aplicação.
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -71,12 +74,51 @@ const patchSchema = z
     codigoOem: z.preprocess(vazioParaNull, z.string().trim().max(60).nullable()).optional(),
     ncm: z.preprocess(vazioParaNull, z.string().trim().max(10).nullable()).optional(),
     localizacao: z.preprocess(vazioParaNull, z.string().trim().max(60).nullable()).optional(),
+    // Campos fiscais: só FINANCEIRO ou acima (erro aqui vira nota errada e multa).
+    cest: z.preprocess(vazioParaNull, z.string().trim().max(9).nullable()).optional(),
+    cstIcms: z.preprocess(vazioParaNull, z.string().trim().regex(/^\d{2,3}$/, "CST/CSOSN com 2 ou 3 dígitos").nullable()).optional(),
+    cfopVendaInterna: z.preprocess(vazioParaNull, z.string().trim().regex(/^\d{4}$/, "CFOP com 4 dígitos").nullable()).optional(),
+    cfopVendaInterestadual: z.preprocess(vazioParaNull, z.string().trim().regex(/^\d{4}$/, "CFOP com 4 dígitos").nullable()).optional(),
+    origemFiscal: z.number().int().min(0).max(8).optional(),
+    monofasicoPisCofins: z.boolean().optional(),
+    cstPis: z.preprocess(vazioParaNull, z.string().trim().regex(/^\d{2}$/).nullable()).optional(),
+    cstCofins: z.preprocess(vazioParaNull, z.string().trim().regex(/^\d{2}$/).nullable()).optional(),
+    cstIbsCbs: z.preprocess(vazioParaNull, z.string().trim().regex(/^\d{3}$/).nullable()).optional(),
+    cClassTrib: z.preprocess(vazioParaNull, z.string().trim().regex(/^\d{6}$/).nullable()).optional(),
   })
   .strict();
+
+/** Campos que mudam a nota fiscal: exigem perfil FINANCEIRO ou acima. */
+const CAMPOS_FISCAIS_PRODUTO = [
+  "ncm",
+  "cest",
+  "cstIcms",
+  "cfopVendaInterna",
+  "cfopVendaInterestadual",
+  "origemFiscal",
+  "monofasicoPisCofins",
+  "cstPis",
+  "cstCofins",
+  "cstIbsCbs",
+  "cClassTrib",
+] as const;
 
 export const PATCH = comAuth<Ctx>("ESTOQUISTA", async (req, ctx, usuario) => {
   const { id } = await ctx.params;
   const body = patchSchema.parse(await req.json());
+  const fiscais = CAMPOS_FISCAIS_PRODUTO.filter((k) => body[k] !== undefined);
+  if (fiscais.length && !podePerfil(usuario.perfil, "FINANCEIRO")) {
+    throw new ApiError(
+      403,
+      `Dados fiscais (${fiscais.join(", ")}) só podem ser alterados por quem cuida do fiscal (perfil Financeiro ou acima). ` +
+        `Peça a revisão a essa pessoa.`,
+    );
+  }
+  if (body.cest) {
+    const d = body.cest.replace(/\D/g, "");
+    if (d.length !== 7) throw new ApiError(422, "CEST precisa ter 7 dígitos (ex.: 01.001.00).");
+    body.cest = d;
+  }
   if (body.ncm) {
     const d = body.ncm.replace(/\D/g, "");
     if (!ncmValido(d)) throw new ApiError(422, "NCM precisa ter 8 dígitos (ex.: 8708.30.90).");
@@ -89,7 +131,11 @@ export const PATCH = comAuth<Ctx>("ESTOQUISTA", async (req, ctx, usuario) => {
   }
   const atual = await prisma.produto.findFirst({
     where: { id, empresaId: usuario.empresaId },
-    select: { id: true, nome: true, codigoBarras: true, codigoFabricante: true, codigoOem: true, ncm: true, localizacao: true },
+    select: {
+      id: true, nome: true, codigoBarras: true, codigoFabricante: true, codigoOem: true, ncm: true, localizacao: true,
+      cest: true, cstIcms: true, cfopVendaInterna: true, cfopVendaInterestadual: true, origemFiscal: true,
+      monofasicoPisCofins: true, cstPis: true, cstCofins: true, cstIbsCbs: true, cClassTrib: true,
+    },
   });
   if (!atual) throw new ApiError(404, "Produto não encontrado");
 
@@ -102,7 +148,9 @@ export const PATCH = comAuth<Ctx>("ESTOQUISTA", async (req, ctx, usuario) => {
     await tx.produto.update({ where: { id }, data: mudou });
     await registrarAuditoria(tx, {
       usuarioId: usuario.id,
-      acao: "CADASTRO_CORRIGIDO",
+      acao: Object.keys(mudou).some((k) => (CAMPOS_FISCAIS_PRODUTO as readonly string[]).includes(k))
+        ? "CADASTRO_FISCAL_ALTERADO"
+        : "CADASTRO_CORRIGIDO",
       entidade: "Produto",
       entidadeId: id,
       antes: Object.fromEntries(Object.keys(mudou).map((k) => [k, (atual as Record<string, unknown>)[k]])),
