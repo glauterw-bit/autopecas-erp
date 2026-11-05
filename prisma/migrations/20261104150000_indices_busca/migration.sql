@@ -20,10 +20,12 @@ CREATE OR REPLACE FUNCTION busca_codigo(t text) RETURNS text
   AS $$ SELECT regexp_replace(upper(public.unaccent('public.unaccent'::regdictionary, t)), '[^A-Z0-9]', '', 'g') $$;
 
 -- Todos os códigos do produto numa string só (SKU, EAN, fabricante, OEM), separados por espaço.
+-- Nomes qualificados com public.: desde o Postgres 17, CREATE INDEX roda as funções com
+-- search_path restrito (pg_catalog), e uma chamada sem schema não é encontrada (erro 42883).
 CREATE OR REPLACE FUNCTION busca_codigos(sku text, ean text, fab text, oem text) RETURNS text
   LANGUAGE sql IMMUTABLE PARALLEL SAFE
-  AS $$ SELECT coalesce(busca_codigo(sku), '') || ' ' || coalesce(busca_codigo(ean), '') || ' '
-            || coalesce(busca_codigo(fab), '') || ' ' || coalesce(busca_codigo(oem), '') $$;
+  AS $$ SELECT coalesce(public.busca_codigo(sku), '') || ' ' || coalesce(public.busca_codigo(ean), '') || ' '
+            || coalesce(public.busca_codigo(fab), '') || ' ' || coalesce(public.busca_codigo(oem), '') $$;
 
 -- PDV: palavras da descrição ("past diant sprinter") e similaridade (erro de digitação).
 CREATE INDEX IF NOT EXISTS "produtos_busca_texto_nome_trgm_idx"
