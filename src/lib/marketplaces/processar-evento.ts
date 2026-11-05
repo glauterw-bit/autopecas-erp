@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 import { MercadoLivreAdapter } from "./mercado-livre";
 import { importarPedidoML } from "./pedido-ml";
+import { ORIGEM_WHATSAPP, processarMensagemWhatsapp } from "./whatsapp-inbound";
 
 // Processa um EventoWebhook gravado pela rota /api/webhooks/marketplaces.
 // Roda no worker (fila marketplaces:sync, job "webhook") e no sync de 15 min
@@ -17,6 +18,8 @@ export function idDoPedidoML(recurso: string | null | undefined): string | null 
 
 export async function processarEventoWebhook(eventoId: string): Promise<string> {
   const ev = await prisma.eventoWebhook.findUnique({ where: { id: eventoId } });
+  // WhatsApp tem ciclo próprio (claim + IA); não depende de conta conectada.
+  if (ev?.origem === ORIGEM_WHATSAPP) return processarMensagemWhatsapp(ev.id);
   if (!ev || !["PENDENTE", "ERRO"].includes(ev.status) || !ev.contaId) return "ignorado";
 
   try {
@@ -53,7 +56,11 @@ export async function processarEventoWebhook(eventoId: string): Promise<string> 
 
 export async function processarEventosPendentes(limite = 100) {
   const pendentes = await prisma.eventoWebhook.findMany({
-    where: { status: { in: ["PENDENTE", "ERRO"] }, contaId: { not: null }, tentativas: { lt: MAX_TENTATIVAS } },
+    where: {
+      status: { in: ["PENDENTE", "ERRO"] },
+      OR: [{ contaId: { not: null } }, { origem: ORIGEM_WHATSAPP }],
+      tentativas: { lt: MAX_TENTATIVAS },
+    },
     orderBy: { recebidoEm: "asc" },
     take: limite,
     select: { id: true },
