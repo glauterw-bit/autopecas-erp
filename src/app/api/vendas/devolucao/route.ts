@@ -13,6 +13,7 @@ import {
   voltaEstoquePadrao,
 } from "@/lib/crm/retorno";
 import { registrarAuditoria } from "@/lib/crm/auditoria";
+import { jaRetornadoPorItem, saldoRetornavel, travarItemVenda } from "@/lib/vendas/devolvido";
 
 // Devolução de venda com motivo obrigatório
 // =========================================
@@ -35,13 +36,9 @@ async function carregarVenda(empresaId: string, where: { id?: string; numero?: n
     },
   });
   if (!venda) throw new ApiError(404, "Venda não encontrada");
-  const retornos = await prisma.retornoVenda.groupBy({
-    by: ["itemVendaId"],
-    // Volta de condicional (origem CONDICIONAL) já reduziu a quantidade do item.
-    where: { empresaId, vendaId: venda.id, origem: "VENDA" },
-    _sum: { quantidade: true },
-  });
-  const jaDevolvido = new Map(retornos.map((r) => [r.itemVendaId, Number(r._sum.quantidade ?? 0)]));
+  // Conta única com o RMA (src/lib/vendas/devolvido.ts): o que voltou por um
+  // caminho não pode voltar de novo pelo outro.
+  const jaDevolvido = await jaRetornadoPorItem(prisma, empresaId, venda.itens.map((i) => i.id));
   return { venda, jaDevolvido };
 }
 
@@ -102,14 +99,17 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
   const totalmente = vendaTotalmenteDevolvida(itensVenda, devolvidoAgora);
 
   const resultado = await prisma.$transaction(async (tx) => {
-    // Revalida dentro da transação contra devolução concorrente do mesmo item.
+    // Trava cada item (SELECT ... FOR UPDATE, em ordem de id para não dar
+    // deadlock) e revalida com o que já voltou por balcão OU RMA. Duas chamadas
+    // simultâneas rodam em fila: a segunda vê o retorno da primeira.
+    for (const { item } of [...itens].sort((a, b) => a.item.id.localeCompare(b.item.id))) {
+      const travado = await travarItemVenda(tx, empresaId, item.id);
+      if (!travado) throw new ApiError(404, "Item da venda não encontrado");
+    }
+    const jaAgora = await jaRetornadoPorItem(tx, empresaId, itens.map((i) => i.item.id));
     for (const { item, quantidade } of itens) {
-      const soma = await tx.retornoVenda.aggregate({
-        where: { empresaId, itemVendaId: item.id, origem: "VENDA" },
-        _sum: { quantidade: true },
-      });
-      if (Number(soma._sum.quantidade ?? 0) + quantidade > item.quantidade + 1e-9) {
-        throw new ApiError(409, "Outro retorno deste item foi registrado agora. Recarregue a venda.");
+      if (quantidade > saldoRetornavel(item.quantidade, jaAgora.get(item.id) ?? 0) + 1e-9) {
+        throw new ApiError(409, "Outro retorno deste item foi registrado agora (balcão ou RMA). Recarregue a venda.");
       }
     }
 
@@ -171,6 +171,25 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
           entidadeId: item.produtoId,
           antes: { depositoId, quantidade: Number(antes?.quantidade ?? 0) },
           depois: { depositoId, quantidade: Number(antes?.quantidade ?? 0) + quantidade, retornoId: r.id },
+        });
+      }
+
+      if (!voltaEstoque) {
+        // Garantia/defeito: a peça volta, mas não para o estoque vendável. Fica na trilha também.
+        await registrarAuditoria(tx, {
+          usuarioId: usuario.id,
+          acao: "RETORNO_SEM_ESTOQUE",
+          entidade: "ItemVenda",
+          entidadeId: item.id,
+          antes: { vendaId: venda.id, quantidadeVendida: item.quantidade, jaDevolvido: jaAgora.get(item.id) ?? 0 },
+          depois: {
+            vendaId: venda.id,
+            jaDevolvido: (jaAgora.get(item.id) ?? 0) + quantidade,
+            quantidadeRetornada: quantidade,
+            voltaEstoque: false,
+            motivo,
+            retornoId: r.id,
+          },
         });
       }
 

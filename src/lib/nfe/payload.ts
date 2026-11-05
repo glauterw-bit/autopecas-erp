@@ -16,7 +16,7 @@ import {
 import { ALIQUOTAS_ICMS_INTERNAS, aliquotaInterestadual } from "../fiscal/calculo";
 import { calcularIbsCbsItem, type ConfigIbsCbsEmpresa, type IbsCbsItem } from "../fiscal/ibs-cbs";
 import { resolverPisCofins, type PisCofinsResolvido } from "../fiscal/pis-cofins";
-import { ehSimples, erroStAutopecaSp, type RegimeEmitente } from "../fiscal/st-sp";
+import { ehSimples, erroStAutopecaSp, erroStSemCestSp, type RegimeEmitente } from "../fiscal/st-sp";
 import { dfeReferenciadoFocus, ibsCbsItemFocus, ibsCbsTotaisFocus } from "./focus-ibs-cbs";
 
 export interface ConfigFiscalEmpresa {
@@ -233,6 +233,16 @@ export function montarNota(d: DadosNota): ResultadoMontagem {
         cfopUsado: cfop,
       });
       if (errSt) erros.push(errSt);
+      else {
+        const errCest = erroStSemCestSp({
+          ufEmitente: ufEmit,
+          dataOperacao: d.dataEmissao,
+          produto: { cest: it.cest, nome: it.nome, sku: it.sku },
+          cstUsado: cst,
+          cfopUsado: cfop,
+        });
+        if (errCest) erros.push(errCest);
+      }
     }
 
     if (d.finalidade === 4 && !it.referencia) {

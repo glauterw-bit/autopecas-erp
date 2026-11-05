@@ -1224,6 +1224,9 @@ model NotaFiscal {
   mensagemSefaz     String?
   // referência usada no provedor (Focus): /v2/nfe/{ref} para consultar, cancelar e CC-e
   refProvedor       String?
+  // Devolução (finalidade 4): itens e quantidades reservados em ItemVenda.quantidadeDevolvidaNota
+  // por esta nota — [{ itemVendaId, quantidade }]. Se a SEFAZ recusar, a reserva é devolvida.
+  devolucaoItens    Json?
 
   xmlAutorizado   String? @db.Text
   xmlCancelamento String? @db.Text
@@ -1233,6 +1236,8 @@ model NotaFiscal {
   venda Venda?
 
   @@unique([empresaId, modelo, serie, numero])
+  @@index([refProvedor])
+  @@index([status, dataEmissao])
   @@map("notas_fiscais")
 }
 

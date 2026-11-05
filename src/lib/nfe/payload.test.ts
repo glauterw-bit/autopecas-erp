@@ -381,3 +381,21 @@ describe("NF-e regime normal (Lucro Presumido) com IBS/CBS — 04/11/2026", () =
     expect(r.erros.join(" ")).toContain("use CST (2 dígitos)");
   });
 });
+
+describe("emissão: filtro sem CEST com CSOSN 500/CFOP 5405 em SP depois de 01/10/2026", () => {
+  it("bloqueia a nota e pede revisão do cadastro (NCM 8421 não é pego pela regra do 8708)", () => {
+    const r = montarNota(
+      nfceSimples({}, { sku: "FILT-01", nome: "Filtro de óleo", ncm: "84212300", cest: null, cstIcms: "500", cfopInterna: "5405" }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.erros.join(" ")).toContain("FILT-01 (Filtro de óleo) está como venda com substituição tributária");
+    expect(r.erros.join(" ")).toContain("não tem CEST");
+  });
+  it("o mesmo filtro com CSOSN 102/CFOP 5102 e sem CEST passa por esta regra", () => {
+    const r = montarNota(
+      nfceSimples({}, { sku: "FILT-01", nome: "Filtro de óleo", ncm: "84212300", cest: null, cstIcms: "102", cfopInterna: "5102" }),
+    );
+    expect(r.ok ? [] : r.erros.filter((e) => e.includes("CEST"))).toEqual([]);
+  });
+});

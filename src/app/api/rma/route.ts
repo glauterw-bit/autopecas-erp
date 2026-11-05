@@ -71,6 +71,6 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
     const out = await registrarRecebimento(body.rmaId, body.inspecionadoPor);
     return NextResponse.json(out);
   }
-  const out = await resolverRMA(body);
+  const out = await resolverRMA({ ...body, empresaId });
   return NextResponse.json(out);
 });

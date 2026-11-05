@@ -3,7 +3,7 @@ import { aplicarAliquota, multiplicarQtdPreco, ratear, reaisParaCentavos } from 
 import { calcularItemFiscal, calcularPisCofins } from "./calculo";
 import { calcularIbsCbsItem, ibsCbsObrigatorio } from "./ibs-cbs";
 import { resolverPisCofins } from "./pis-cofins";
-import { ehAutopeca, erroStAutopecaSp, sugerirTributacaoPosSt } from "./st-sp";
+import { ehAutopeca, erroStAutopecaSp, erroStSemCestSp, sugerirTributacaoPosSt } from "./st-sp";
 
 describe("centavos", () => {
   it("converte e arredonda meio para cima", () => {
@@ -100,5 +100,24 @@ describe("IBS/CBS — obrigatoriedade e cálculo", () => {
     });
     // BC = 100 − 18 = 82,00; CBS 8,7% = 7,134 → 7,13
     expect("enviar" in r && r.enviar && r.item.cbsCentavos).toBe(713);
+  });
+});
+
+describe("ST sem CEST em SP depois de 01/10/2026 (bloqueia: não dá para saber se ainda tem ST)", () => {
+  const depois = new Date("2026-11-04T12:00:00Z");
+  const base = { ufEmitente: "SP", dataOperacao: depois, cstUsado: "60", cfopUsado: "5405" };
+  it("filtro (8421), vela (8511) e rolamento (8482) com ST e sem CEST: bloqueia", () => {
+    for (const [sku, cst, cfop] of [["FILTRO", "60", "5405"], ["VELA", "500", "5102"], ["ROLAM", "102", "5405"]]) {
+      const msg = erroStSemCestSp({ ...base, cstUsado: cst, cfopUsado: cfop, produto: { sku, nome: sku, cest: null } });
+      expect(msg).toContain("não tem CEST");
+      expect(msg).toContain("Revise o cadastro");
+    }
+  });
+  it("com CEST, sem ST, fora de SP ou antes de 01/10/2026: não bloqueia por esta regra", () => {
+    expect(erroStSemCestSp({ ...base, produto: { cest: "01.001.00" } })).toBeNull();
+    expect(erroStSemCestSp({ ...base, cstUsado: "00", cfopUsado: "5102", produto: { cest: null } })).toBeNull();
+    expect(erroStSemCestSp({ ...base, ufEmitente: "MG", produto: { cest: null } })).toBeNull();
+    expect(erroStSemCestSp({ ...base, dataOperacao: new Date("2026-10-01T02:59:00Z"), produto: { cest: null } })).toBeNull();
+    expect(erroStSemCestSp({ ...base, dataOperacao: new Date("2026-10-01T03:00:00Z"), produto: { cest: "" } })).not.toBeNull();
   });
 });

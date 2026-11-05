@@ -82,6 +82,38 @@ export function erroStAutopecaSp(opts: {
   );
 }
 
+/**
+ * Venda com cara de ST (CST 60, CSOSN 500 ou CFOP 5405/5403/...) sem CEST, por
+ * emitente de SP depois de 01/10/2026: bloqueia.
+ * Por quê: `ehAutopeca` só reconhece peça sem CEST pelo NCM 8708, e filtro
+ * (8421), vela (8511), rolamento (8482) etc. passariam como "não autopeça"
+ * mesmo estando no segmento 01 do Conv. ICMS 142/2018 (Anexo II). Sem CEST não
+ * dá para saber se o item ainda tem ST; na dúvida o sistema não deixa passar.
+ * O CEST identifica as mercadorias sujeitas a ST e deve constar no documento
+ * fiscal quando o item está nos anexos do Conv. ICMS 142/2018:
+ *   https://www.confaz.fazenda.gov.br/legislacao/convenios/2018/CV142_18
+ * Fim da ST de autopeças em SP: Portaria SRE 34/2026 (ver topo do arquivo).
+ */
+export function erroStSemCestSp(opts: {
+  ufEmitente: string;
+  dataOperacao: Date;
+  produto: { cest?: string | null; nome?: string; sku?: string };
+  cstUsado: string;
+  cfopUsado: string;
+}): string | null {
+  if (opts.ufEmitente !== "SP" || !naOuDepois(opts.dataOperacao, FIM_ST_AUTOPECAS_SP)) return null;
+  if (soDigitos(opts.produto.cest).length === 7) return null;
+  const temSt = CSTS_ST_SUBSTITUIDO.has(opts.cstUsado) || CFOPS_ST.has(opts.cfopUsado);
+  if (!temSt) return null;
+  const nome = opts.produto.sku ? `${opts.produto.sku} (${opts.produto.nome ?? ""})` : opts.produto.nome ?? "";
+  return (
+    `O produto ${nome} está como venda com substituição tributária (CST/CSOSN ${opts.cstUsado}, CFOP ${opts.cfopUsado}) ` +
+    `mas não tem CEST. Desde 01/10/2026 a maioria das autopeças saiu da ST em SP (Portaria SRE 34/2026), e sem o CEST ` +
+    `o sistema não consegue saber se esta peça ainda tem ST. Revise o cadastro fiscal do produto (CEST, CST/CSOSN e CFOP) ` +
+    `com o contador antes de emitir.`
+  );
+}
+
 export type RegimeEmitente = "SIMPLES_NACIONAL" | "SIMPLES_EXCESSO_SUBLIMITE" | "LUCRO_PRESUMIDO" | "LUCRO_REAL" | "MEI";
 
 export function ehSimples(regime: RegimeEmitente): boolean {

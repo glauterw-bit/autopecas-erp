@@ -31,6 +31,7 @@ export const queues = {
   tecdoc:       new Queue("catalogo:tecdoc", defaults),
   whatsapp:     new Queue("comms:whatsapp",  defaults),
   notificacoes: new Queue("comms:push",      defaults),
+  nfeconsulta:  new Queue("fiscal:nfe-consulta", { ...defaults, defaultJobOptions: { ...defaults.defaultJobOptions, attempts: 1 } }),
 } as const;
 
 export type FilaNome = keyof typeof queues;
