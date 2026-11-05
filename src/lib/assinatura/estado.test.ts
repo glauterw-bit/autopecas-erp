@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  creditoBloqueadoPeloModo,
   avaliarNotas, calcularAcesso, checarLimiteSimples, checarLimiteUsuarios, decidirRota, DIA_MS,
   paginaLiberadaNaSuspensao, moduloDaPagina, moduloDaRotaApi, moduloLiberado, prazosInadimplencia, suspensaoMinDias, type AssinaturaBasica, type LimitesPlano,
 } from "./estado";
@@ -182,5 +183,15 @@ describe("painel do dono do SaaS", () => {
     expect(checarSuspensao(a, AGORA, false)).toContain("atraso há 10 dia");
     expect(checarSuspensao(a, AGORA, true)).toBeNull();
     expect(checarSuspensao({ ...a, inadimplenteDesde: diasAtras(40) }, AGORA, false)).toBeNull();
+  });
+});
+
+describe("crédito no modo somente leitura", () => {
+  it("cadastro rápido segue, mas limite de crédito > 0 fica travado em atraso", () => {
+    expect(creditoBloqueadoPeloModo("SOMENTE_LEITURA", 500)).toBe(true);
+    expect(creditoBloqueadoPeloModo("SUSPENSO", 1)).toBe(true);
+    expect(creditoBloqueadoPeloModo("SOMENTE_LEITURA", 0)).toBe(false);
+    expect(creditoBloqueadoPeloModo("AVISO", 500)).toBe(false);
+    expect(creditoBloqueadoPeloModo("NORMAL", 500)).toBe(false);
   });
 });

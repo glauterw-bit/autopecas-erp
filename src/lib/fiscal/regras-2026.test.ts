@@ -121,3 +121,25 @@ describe("ST sem CEST em SP depois de 01/10/2026 (bloqueia: não dá para saber 
     expect(erroStSemCestSp({ ...base, dataOperacao: new Date("2026-10-01T03:00:00Z"), produto: { cest: "" } })).not.toBeNull();
   });
 });
+
+describe("lista única de CFOPs de ST", () => {
+  it("st-sp, emissor e virada usam a mesma lista, com 5402 e 6402", async () => {
+    const st = await import("./st-sp");
+    const payload = await import("../nfe/payload");
+    expect(payload.CFOPS_ST).toBe(st.CFOPS_ST);
+    for (const c of ["5401", "5402", "5403", "5405", "6401", "6402", "6403", "6404"]) expect(st.CFOPS_ST.has(c)).toBe(true);
+    expect([...st.CFOPS_ST_INTERESTADUAIS].sort()).toEqual(["6401", "6402", "6403", "6404"]);
+  });
+  it("CFOP 5402 em autopeça de SP depois de 01/10/2026 é bloqueado", async () => {
+    const { erroStAutopecaSp } = await import("./st-sp");
+    const erro = erroStAutopecaSp({
+      ufEmitente: "SP",
+      ufDestino: "SP",
+      dataOperacao: new Date("2026-11-05T15:00:00Z"),
+      produto: { ncm: "87083090", cest: "0100100", sku: "PF-001", nome: "Pastilha" },
+      cstUsado: "102",
+      cfopUsado: "5402",
+    });
+    expect(erro).toBeTruthy();
+  });
+});

@@ -14,7 +14,13 @@ import { FIM_ST_AUTOPECAS_SP, naOuDepois } from "./vigencias";
 
 /** CST/CSOSN e CFOPs que representam "venda com ST" (substituído). */
 export const CSTS_ST_SUBSTITUIDO = new Set(["60", "500"]);
-export const CFOPS_ST = new Set(["5405", "5403", "5401", "6403", "6404", "6401"]);
+// Lista ÚNICA de CFOPs de venda com ST: 5.401, 5.402, 5.403 e 5.405 (operação interna) e
+// 6.401 a 6.404 (interestadual). Fonte: tabela de CFOP do Convênio s/nº de 1970 (Anexo,
+// atualizado por Ajustes SINIEF): https://www.confaz.fazenda.gov.br/legislacao/ajustes/sinief/cfop_cvsn_70_vigente
+// Hipótese a conferir com o contador: transferência com ST (5.408/5.409, 6.408/6.409).
+// Usada pelo bloqueio da ST de SP, pelo emissor (CST padrão) e pela virada da ST.
+export const CFOPS_ST = new Set(["5401", "5402", "5403", "5405", "6401", "6402", "6403", "6404"]);
+export const CFOPS_ST_INTERESTADUAIS = new Set([...CFOPS_ST].filter((c) => c.startsWith("6")));
 
 export interface ProdutoFiscalBasico {
   ncm?: string | null;

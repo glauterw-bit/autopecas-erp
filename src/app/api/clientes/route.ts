@@ -1,3 +1,5 @@
+import { acessoDaEmpresa } from "@/lib/assinatura/politica";
+import { creditoBloqueadoPeloModo } from "@/lib/assinatura/estado";
 import { limparTermoBusca } from "@/lib/catalogo/busca-normalizar";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -63,6 +65,13 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
   // Limite de crédito só com perfil FINANCEIRO ou acima.
   if (body.limiteCredito > 0 && !podePerfil(usuario.perfil, "FINANCEIRO")) {
     throw new ApiError(403, "Limite de crédito só pode ser definido pelo financeiro ou pela gerência.");
+  }
+  // Assinatura em somente leitura: o cadastro rápido do balcão segue, mas sem crédito.
+  if (body.limiteCredito > 0) {
+    const { modo } = await acessoDaEmpresa(empresaId);
+    if (creditoBloqueadoPeloModo(modo, body.limiteCredito)) {
+      throw new ApiError(402, "Com a assinatura em atraso, o cliente pode ser cadastrado, mas sem limite de crédito. Regularize em Configurações > Assinatura.");
+    }
   }
   const cliente = await prisma.cliente.create({ data: { ...body, empresaId } });
   return NextResponse.json(protegerCliente(usuario, cliente), { status: 201 });

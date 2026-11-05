@@ -16,6 +16,7 @@ import { prisma } from "../db";
 import { reaisParaCentavos } from "./centavos";
 import {
   cadastroComSt,
+  CFOPS_ST_INTERESTADUAIS,
   ehAutopeca,
   sugerirTributacaoPosSt,
   type ProdutoFiscalBasico,
@@ -51,7 +52,7 @@ export function classificarProdutoVirada(p: ProdutoVirada, regime: RegimeEmitent
   const antes = { cstIcms: p.cstIcms ?? null, cfopVendaInterna: p.cfopVendaInterna ?? null };
   const base = { produtoId: p.id, sku: p.sku, nome: p.nome, ncm: p.ncm ?? null, cest: p.cest ?? null, antes };
   const avisoInter =
-    p.cfopVendaInterestadual && ["6403", "6404", "6401"].includes(p.cfopVendaInterestadual)
+    p.cfopVendaInterestadual && CFOPS_ST_INTERESTADUAIS.has(p.cfopVendaInterestadual)
       ? `CFOP interestadual ${p.cfopVendaInterestadual} não foi alterado: a ST pode continuar no estado de destino. Confira com o contador.`
       : undefined;
   if (!ehAutopeca(p)) {

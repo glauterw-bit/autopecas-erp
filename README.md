@@ -32,12 +32,12 @@ Legenda:
 | **Shopee** | 🟡 beta | sync de anúncios e pedidos, webhook com HMAC (`src/lib/marketplaces/shopee.ts`) | teste com conta real |
 | **Amazon SP-API** | 🟡 beta | LWA OAuth, Listings e Orders (`src/lib/marketplaces/amazon.ts`) | teste com conta real |
 | **Magalu** | 🟡 beta | adaptador de anúncios, pedidos, preço e estoque (`src/lib/marketplaces/magalu.ts`) | envio de mensagem não implementado (`magalu.ts:157`); teste com conta real |
-| **WhatsApp Business** | 🚧 em desenvolvimento | webhook de entrada e envio via Graph API (`src/lib/marketplaces/whatsapp.ts`) | a entrada vai sempre para a primeira empresa do banco (`src/app/api/ia/whatsapp/route.ts:50`); não serve para mais de uma loja |
-| **NF-e 55 / NFC-e 65** | 🟡 beta | emissão ao faturar a venda (`src/app/api/vendas/[id]/faturar/route.ts`), cancelamento, CC-e, inutilização e manifestação via API (`src/lib/nfe/operacoes.ts`) | tela para cancelar, CC-e e inutilizar (a tela fiscal só mostra o endereço da API); configuração fiscal por loja; IBS/CBS; emitir só em homologação até validar |
+| **WhatsApp Business** | 🚧 em desenvolvimento | webhook de entrada idempotente, empresa resolvida pelo número, envio pelo número da loja (`src/lib/marketplaces/whatsapp*.ts`) | teste com número real na Meta |
+| **NF-e 55 / NFC-e 65** | 🟡 beta | emissão ao faturar a venda (`src/app/api/vendas/[id]/faturar/route.ts`), cancelamento, CC-e, inutilização e manifestação via API (`src/lib/nfe/operacoes.ts`) | validar em homologação com token da Focus (IBS/CBS, cancelamento, CC-e e inutilização já têm tela e payload); emitir só em homologação até validar |
 | **NFS-e municipal** | 🟡 beta | padrão ABRASF via API (`src/lib/nfe/nfse.ts`) | tela; teste com prefeitura |
 | **MDF-e** | 🟡 beta | emissão, encerramento e cancelamento via API (`src/lib/nfe/mdfe.ts`) | tela; teste em homologação |
 | **CT-e** | 🟡 beta | emissão e importação via API (`src/lib/nfe/cte.ts`) | tela; teste em homologação |
-| **Motor fiscal** | 🟡 beta | ICMS, ICMS-ST com MVA ajustada, DIFAL + FCP, IPI, PIS/COFINS (`src/lib/fiscal/calculo.ts`, com testes) | o emissor ainda manda PIS/COFINS fixo; IBS/CBS |
+| **Motor fiscal** | 🟡 beta | ICMS, ICMS-ST com MVA ajustada, DIFAL + FCP, IPI, PIS/COFINS (`src/lib/fiscal/calculo.ts`, com testes) | IBS/CBS no payload (`src/lib/nfe/focus-ibs-cbs.ts`) ainda sem validação na Focus; alíquotas de 2027 a cadastrar |
 | **PGDAS-D (Simples)** | 🟡 beta | cálculo da alíquota efetiva e do DAS (`src/lib/fiscal/simples-nacional.ts`) | conferência com um contador; não transmite |
 | **SPED ECD, EFD-ICMS/IPI e Contribuições** | 🟡 beta | gera o arquivo TXT (`src/lib/contabil/sped.ts`, `sped-contribuicoes.ts`) | **ainda não validado no PVA da Receita**; não usar para entrega oficial até passar no PVA |
 | **DCTFWeb / DEFIS / EFD-Reinf** | 🚧 em desenvolvimento | cálculo interno (`src/lib/fiscal/declaracoes.ts`) | não gera arquivo transmissível |

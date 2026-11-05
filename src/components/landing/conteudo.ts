@@ -13,7 +13,7 @@ export const DORES: { titulo: string; problema: string; solucao: string }[] = [
     titulo: "Achar a peça sem saber o código exato",
     problema: "O cliente fala \"FD-123\", o cadastro está como \"FD123\", ou só a descrição abreviada.",
     solucao:
-      "A busca ignora traço, ponto e espaço no código (SKU, código de barras, do fabricante ou OEM) e também procura pelas palavras da descrição, no formato abreviado que a loja já usa. O código exato aparece primeiro. Em teste com 50 mil produtos sintéticos, as buscas típicas responderam em menos de 30 milissegundos.",
+      "A busca ignora traço, ponto e espaço no código (SKU, código de barras, do fabricante ou OEM) e também procura pelas palavras da descrição, no formato abreviado que a loja já usa. O código exato aparece primeiro. Em teste com 50 mil produtos sintéticos, numa máquina de teste, as buscas típicas responderam em cerca de 30 milissegundos ou menos.",
   },
   {
     titulo: "Peça certa para o veículo certo",

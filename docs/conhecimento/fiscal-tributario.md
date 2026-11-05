@@ -107,13 +107,13 @@ A tabela de `cClassTrib` sai no Portal NF-e. **Não baixei a tabela vigente** [E
 
 | Item | Prazo | Hoje |
 |---|---|---|
-| Grupo IBS/CBS + cClassTrib por item | Regime normal: já. Simples: 01/01/2027 | Falta |
+| Grupo IBS/CBS + cClassTrib por item | Regime normal: já. Simples: 01/01/2027 | Feito em código (`src/lib/nfe/focus-ibs-cbs.ts`); falta validar na Focus em homologação |
 | Regra fiscal NCM × UF × regime (CST/CSOSN, CFOP, MVA, CEST, monofásico) | Já | Manual por produto |
-| Migração pós-ST de SP (CSOSN/CFOP e estoque de 30/09) | Já | Falta |
-| Crédito do estoque com ST (CAT 28/2020): relatório, Bloco H motivo 02, E111 SP020750 | Já | Falta |
+| Migração pós-ST de SP (CSOSN/CFOP e estoque de 30/09) | Já | Feito: virada em lote com prévia e relatório do estoque (`src/lib/fiscal/virada-st.ts`) |
+| Crédito do estoque com ST (CAT 28/2020): relatório, Bloco H motivo 02, E111 SP020750 | Já | Só o relatório; lançamento a confirmar com o contador |
 | NFC-e offline + EPEC/SVC para NF-e | Já | Falta |
-| Devolução com `DFeReferenciado` por item | 03/11/2026 | Falta |
-| Gestão de certificado A1 com alerta de validade | Já | Falta |
+| Devolução com `DFeReferenciado` por item | 03/11/2026 | Feito (`src/lib/nfe/devolucao.ts`); falta validar em homologação |
+| Gestão de certificado A1 com alerta de validade | Já | Feito (Configurações > Fiscal, aviso a 30 dias e bloqueio após vencer) |
 | DeSTDA (Simples) / EFD validada no PVA | Mensal | Parcial |
 | NFS-e padrão nacional (oficina) | 01/11/2026 | Conferir `nfse.ts` |
 | CBS plena, fim do PIS/COFINS, IPI zero, apuração com crédito | 01/01/2027 | Falta |

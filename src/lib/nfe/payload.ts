@@ -16,7 +16,7 @@ import {
 import { ALIQUOTAS_ICMS_INTERNAS, aliquotaInterestadual } from "../fiscal/calculo";
 import { calcularIbsCbsItem, type ConfigIbsCbsEmpresa, type IbsCbsItem } from "../fiscal/ibs-cbs";
 import { resolverPisCofins, type PisCofinsResolvido } from "../fiscal/pis-cofins";
-import { ehSimples, erroStAutopecaSp, erroStSemCestSp, type RegimeEmitente } from "../fiscal/st-sp";
+import { CFOPS_ST, ehSimples, erroStAutopecaSp, erroStSemCestSp, type RegimeEmitente } from "../fiscal/st-sp";
 import { dfeReferenciadoFocus, ibsCbsItemFocus, ibsCbsTotaisFocus } from "./focus-ibs-cbs";
 
 export interface ConfigFiscalEmpresa {
@@ -134,8 +134,8 @@ export const CSOSN_PADRAO_ACEITOS = new Set(["102"]);
 export const CST_PADRAO_ACEITOS = new Set(["00"]);
 export const MSG_PADRAO_RESTRITO = "Isenção, não tributação e ST precisam estar no cadastro de cada produto";
 
-/** CFOPs de venda com substituição tributária (5.401 a 5.403, 5.405 e 6.401 a 6.404). Heurística de bloqueio. */
-export const CFOPS_ST = new Set(["5401", "5402", "5403", "5405", "6401", "6402", "6403", "6404"]);
+/** CFOPs de venda com ST: lista única em fiscal/st-sp.ts. */
+export { CFOPS_ST };
 
 /** Mensagem de erro se o padrão salvo não serve (null = serve ou vazio). Usado no formulário, no checklist e na emissão. */
 export function erroCstPadrao(simples: boolean, cst: string | undefined | null): string | null {

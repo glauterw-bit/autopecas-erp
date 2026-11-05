@@ -172,6 +172,14 @@ function comecaCom(caminho: string, prefixos: string[]): boolean {
   return prefixos.some((p) => caminho === p || caminho.startsWith(p.endsWith("/") ? p : p + "/"));
 }
 
+/**
+ * No balcão em somente leitura o PDV ainda cadastra cliente, mas sem crédito:
+ * dar limite de crédito é decisão financeira e fica travada até regularizar.
+ */
+export function creditoBloqueadoPeloModo(modo: ModoAcesso, limiteCredito: number): boolean {
+  return limiteCredito > 0 && (modo === "SOMENTE_LEITURA" || modo === "SUSPENSO");
+}
+
 export function ehMetodoDeEscrita(metodo: string): boolean {
   return !["GET", "HEAD", "OPTIONS"].includes(metodo.toUpperCase());
 }

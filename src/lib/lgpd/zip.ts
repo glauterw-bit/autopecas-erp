@@ -50,21 +50,40 @@ async function* comprimir(
   m: { crc: number; bruto: number; comp: number },
 ): AsyncGenerator<Buffer> {
   const def = createDeflateRaw();
+  // Espera o "drain", mas também solta se o compressor fechar (download cancelado):
+  // sem isso a alimentação ficaria pendurada para sempre segurando memória.
+  const esperaDrain = () =>
+    new Promise<void>((ok) => {
+      const solta = () => {
+        def.off("drain", solta);
+        def.off("close", solta);
+        ok();
+      };
+      def.once("drain", solta);
+      def.once("close", solta);
+    });
   const alimenta = (async () => {
     for await (const parte of fonte) {
+      if (def.destroyed) return; // consumidor desistiu: para de ler a fonte
       const b = emBytes(parte);
       if (!b.length) continue;
       m.crc = crc32Parcial(m.crc, b);
       m.bruto += b.length;
-      if (!def.write(b)) await new Promise<void>((ok) => def.once("drain", ok));
+      if (!def.write(b)) await esperaDrain();
     }
-    def.end();
+    if (!def.destroyed) def.end();
   })().catch((e) => def.destroy(e as Error));
-  for await (const c of def) {
-    m.comp += (c as Buffer).length;
-    yield c as Buffer;
+  try {
+    for await (const c of def) {
+      m.comp += (c as Buffer).length;
+      yield c as Buffer;
+    }
+    await alimenta;
+  } finally {
+    // Saída antecipada (return/throw do consumidor): fecha o compressor e deixa a alimentação terminar.
+    if (!def.destroyed) def.destroy();
+    await alimenta.catch(() => undefined);
   }
-  await alimenta;
 }
 
 async function* umaParte(p: string | Uint8Array): AsyncGenerator<string | Uint8Array> {

@@ -108,3 +108,29 @@ describe.skipIf(!temUnzip())("zip64 e fluxo, conferidos pelo unzip -t", () => {
     expect(saida).toContain("xml/n69999.xml");
   }, 300_000);
 });
+
+describe("download cancelado no meio", () => {
+  it("parar de ler o ZIP solta o compressor e para de consumir a fonte", async () => {
+    let lidos = 0;
+    let finalizada = false;
+    async function* fonteGrande() {
+      try {
+        for (let i = 0; i < 100_000; i++) {
+          lidos++;
+          // texto pouco compressível para encher o buffer do deflate
+          yield Buffer.from(Array.from({ length: 2048 }, (_, k) => (i * 31 + k * 17) % 251));
+        }
+      } finally {
+        finalizada = true;
+      }
+    }
+    const g = gerarZip([{ nome: "grande.bin", conteudo: fonteGrande() }]);
+    await g.next();
+    await g.next();
+    await g.return(undefined); // o cliente fechou a conexão
+    // dá uma volta no loop de eventos para a alimentação perceber o fechamento
+    await new Promise((r) => setTimeout(r, 50));
+    expect(finalizada).toBe(true);
+    expect(lidos).toBeLessThan(100_000);
+  }, 10_000);
+});
