@@ -1827,3 +1827,61 @@ model LogAuditoria {
   @@index([usuarioId, criadoEm])
   @@map("logs_auditoria")
 }
+
+// Webhooks recebidos (ML, Shopee, Pix...). Idempotência pelo id do evento na
+// origem: o unique (origem, idExterno) impede processar duas vezes o mesmo
+// aviso, mesmo com reentrega do provedor. empresaId é resolvido pela conta
+// (ML user_id, Shopee shop_id) e fica nulo quando não casa nenhuma.
+model EventoWebhook {
+  id           String    @id @default(cuid())
+  origem       String // MERCADO_LIVRE, SHOPEE, PIX...
+  idExterno    String
+  empresaId    String?
+  contaId      String?
+  topico       String?
+  recurso      String?
+  status       String    @default("PENDENTE") // PENDENTE, PROCESSADO, IGNORADO, ERRO
+  tentativas   Int       @default(0)
+  erro         String?
+  payload      Json?
+  recebidoEm   DateTime  @default(now())
+  processadoEm DateTime?
+
+  @@unique([origem, idExterno])
+  @@index([status, recebidoEm])
+  @@index([empresaId, recebidoEm])
+  @@map("eventos_webhook")
+}
+
+// Cache do mapeamento versão de veículo (catálogo interno) → produtos de
+// veículo do catálogo de compatibilidades do Mercado Livre. É global (o
+// catálogo de veículos do ML é o mesmo para todas as lojas).
+model CompatibilidadeMLCache {
+  id           String   @id @default(cuid())
+  versaoId     String   @unique
+  dominio      String
+  produtosMl   Json // string[] de ids de produto-veículo do ML
+  status       String // MAPEADO, SEM_CORRESPONDENCIA
+  detalhe      String?
+  atualizadoEm DateTime @updatedAt
+
+  @@map("compatibilidades_ml_cache")
+}
+
+// Dono local de cada recorrência Pix Automático: o idRec é do PSP (global),
+// então sem esta tabela uma empresa conseguia pausar/cancelar/cobrar a
+// recorrência de outra. Toda ação filtra por (id, empresaId).
+model PixRecorrencia {
+  id            String   @id // idRec
+  empresaId     String
+  clienteId     String
+  descricao     String
+  valor         Decimal  @db.Decimal(14, 2)
+  periodicidade String
+  status        String   @default("CRIADA") // CRIADA, ATIVA, PAUSADA, CANCELADA
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@index([empresaId])
+  @@map("pix_recorrencias")
+}

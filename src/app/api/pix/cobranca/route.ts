@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { gerarBrCodePixEstatico, gerarTxid, PspPixClient } from "@/lib/pagamentos/pix";
+import { gerarBrCodePixEstatico, gerarTxid } from "@/lib/pagamentos/pix";
+import { configPspDoAmbiente, ErroPsp, PspPixClient } from "@/lib/pagamentos/psp-pix";
 import { prisma } from "@/lib/db";
 import { comAuth } from "@/lib/auth/guard";
 
@@ -64,28 +65,30 @@ export const POST = comAuth("CAIXA", async (req, _ctx, usuario) => {
   }
 
   if (body.usarPspDinamico) {
-    if (
-      !process.env.PSP_PIX_BASE_URL ||
-      !process.env.PSP_PIX_CLIENT_ID ||
-      !process.env.PSP_PIX_CLIENT_SECRET
-    ) {
+    const cfg = configPspDoAmbiente();
+    if (!cfg) {
       return NextResponse.json(
         { erro: "PSP Pix não configurado — usando Pix estático" },
         { status: 400 },
       );
     }
-    const psp = new PspPixClient({
-      baseUrl: process.env.PSP_PIX_BASE_URL,
-      clientId: process.env.PSP_PIX_CLIENT_ID,
-      clientSecret: process.env.PSP_PIX_CLIENT_SECRET,
-    });
-    const cobranca = await psp.criarCobrancaImediata({
-      txid,
-      valor: body.valor,
-      chave,
-      descricao: body.descricao,
-      expiracaoSegundos: body.expiracaoSegundos,
-    });
+    let cobranca: Record<string, unknown>;
+    try {
+      // mTLS: o certificado do PSP vem de PSP_PIX_CERT_* (ver psp-pix.ts).
+      const psp = new PspPixClient(cfg);
+      cobranca = (await psp.criarCobrancaImediata({
+        txid,
+        valor: body.valor,
+        chave,
+        descricao: body.descricao,
+        expiracaoSegundos: body.expiracaoSegundos,
+      })) as Record<string, unknown>;
+    } catch (e) {
+      if (e instanceof ErroPsp) {
+        return NextResponse.json({ erro: e.message }, { status: 502 });
+      }
+      throw e;
+    }
     return NextResponse.json({ tipo: "dinamico", txid, ...cobranca });
   }
 
