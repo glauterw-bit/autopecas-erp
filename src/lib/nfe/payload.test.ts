@@ -399,3 +399,28 @@ describe("emissão: filtro sem CEST com CSOSN 500/CFOP 5405 em SP depois de 01/1
     expect(r.ok ? [] : r.erros.filter((e) => e.includes("CEST"))).toEqual([]);
   });
 });
+
+describe("CST/CSOSN padrão da empresa (Configurações > Fiscal)", () => {
+  const comPadrao = (cst: string) => ({
+    emitente: {
+      cnpj: CNPJ, inscricaoEstadual: "123456789012", uf: "SP", regime: "SIMPLES_NACIONAL" as const,
+      config: { cstIcmsPadrao: cst },
+    },
+  });
+  it("produto sem CSOSN usa o padrão da loja; valores iguais ao golden (17480 centavos)", () => {
+    const r = montarNota(nfceSimples(comPadrao("102"), { cstIcms: null }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.itens[0].cstIcms).toBe("102");
+    expect(r.totais.totalCentavos).toBe(17480);
+    expect((r.payload.items as Array<Record<string, unknown>>)[0].icms_situacao_tributaria).toBe("102");
+  });
+  it("cadastro do produto tem prioridade sobre o padrão", () => {
+    const r = montarNota(nfceSimples(comPadrao("103"), { cstIcms: "102" }));
+    expect(r.ok && r.itens[0].cstIcms).toBe("102");
+  });
+  it("padrão não aceito continua bloqueando (CST de regime normal numa empresa do Simples)", () => {
+    const r = montarNota(nfceSimples(comPadrao("00"), { cstIcms: null }));
+    expect(r.ok).toBe(false);
+  });
+});

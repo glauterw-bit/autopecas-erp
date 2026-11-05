@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/sessao";
@@ -49,6 +50,11 @@ export default async function FiscalPage() {
         <p className="text-muted-foreground">
           Notas emitidas, cancelamento, carta de correção, inutilização e arquivos para o contador.
         </p>
+        {podeOperar && (
+          <Link href="/configuracoes/fiscal" className="mt-2 inline-block text-sm font-medium text-primary underline-offset-4 hover:underline">
+            Configurar emissão (certificado, série, CSC, token)
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

@@ -5,6 +5,7 @@ import { reaisParaCentavos, centavosParaReais } from "../fiscal/centavos";
 import type { RegimeEmitente } from "../fiscal/st-sp";
 import { configFiscalDaEmpresa, configFocus, FOCUS_BASE } from "./config-focus";
 import { montarNota, type ConfigFiscalEmpresa, type DadosNota, type ItemCalculado } from "./payload";
+import { checklistFiscal, mensagemBloqueio, type EmpresaFiscal } from "./prontidao-fiscal";
 
 // Emissor de NF-e / NFC-e
 // =======================
@@ -94,8 +95,18 @@ export const MSG_SEM_TOKEN_FOCUS = "Emissão de nota não configurada: falta o t
 /** Configuração da Focus com token; sem token, bloqueia antes de gravar qualquer nota. */
 export function configFocusComToken(empresa: { cnpj: string; configuracoes?: unknown }) {
   const cfg = configFocus(empresa);
+  if (cfg.erroToken) throw new ApiError(422, `Token da Focus NFe: ${cfg.erroToken}`);
   if (!cfg.token.trim()) throw new ApiError(422, MSG_SEM_TOKEN_FOCUS);
   return cfg;
+}
+
+/**
+ * Checklist de prontidão (certificado, IE, endereço, token, série, CSC,
+ * IBS/CBS). Falta algo: 422 com a lista, antes de gravar ou chamar a Focus.
+ */
+export function exigirProntidaoFiscal(empresa: EmpresaFiscal, modelo: "55" | "65") {
+  const msg = mensagemBloqueio(checklistFiscal(empresa, { modelo }));
+  if (msg) throw new ApiError(422, msg);
 }
 
 export async function enviarFocus(opts: {
@@ -142,9 +153,10 @@ export async function emitirNotaFiscal(vendaId: string, empresaId?: string) {
   if (venda.status === "CANCELADA")
     throw new ApiError(422, "Não é possível emitir nota para venda cancelada");
   if (venda.notaFiscalId) throw new ApiError(422, "Venda já possui nota emitida");
+  const modelo: "55" | "65" = venda.origem === "BALCAO" || venda.origem === "PDV" ? "65" : "55";
+  exigirProntidaoFiscal(venda.empresa, modelo);
   configFocusComToken(venda.empresa);
 
-  const modelo: "55" | "65" = venda.origem === "BALCAO" || venda.origem === "PDV" ? "65" : "55";
   const dados: DadosNota = {
     modelo,
     finalidade: 1,

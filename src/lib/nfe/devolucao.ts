@@ -19,7 +19,7 @@ import { Prisma, type NotaFiscal } from "@prisma/client";
 import { prisma } from "../db";
 import { ApiError } from "../auth/guard";
 import { centavosParaReais, reaisParaCentavos } from "../fiscal/centavos";
-import { configFocusComToken, destinatarioDoCliente, emitenteDaEmpresa, enviarFocus, numeroProvisorio, statusDaResposta, type RetratoFiscalItem } from "./emissor";
+import { configFocusComToken, exigirProntidaoFiscal, destinatarioDoCliente, emitenteDaEmpresa, enviarFocus, numeroProvisorio, statusDaResposta, type RetratoFiscalItem } from "./emissor";
 import { liberarReservaDevolucao } from "./sincronizar";
 import { montarNota, type DadosNota, type ItemEntradaNota } from "./payload";
 import { itensDoXmlNfe } from "./xml-nfe";
@@ -191,7 +191,8 @@ export async function emitirNotaDevolucao(opts: {
   if (!venda.cliente) {
     throw new ApiError(422, "Cadastre o cliente (CPF/CNPJ e endereço) na venda antes de emitir a NF-e de devolução.");
   }
-  // Sem token não grava nada (nem reserva, nem nota).
+  // Sem token ou com configuração fiscal incompleta não grava nada (nem reserva, nem nota).
+  exigirProntidaoFiscal(venda.empresa, "55");
   configFocusComToken(venda.empresa);
 
   // O mesmo item pedido duas vezes vira uma linha só, com a soma.

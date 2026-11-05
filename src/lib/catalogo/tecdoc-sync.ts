@@ -64,16 +64,12 @@ export async function sincronizarTecdocEmpresa(empresaId: string): Promise<Tecdo
 
     const progresso = await importarTafXml({ empresaId, xml });
 
-    await prisma.empresa.update({
-      where: { id: empresaId },
-      data: {
-        configuracoes: {
-          ...cfg,
-          tecdocVersaoAtual: meta.versao,
-          tecdocUltimaSync: new Date().toISOString(),
-        } as object,
-      },
-    });
+    // Mescla só as chaves do TecDoc: o download leva minutos e regravar o JSON
+    // inteiro lido antes apagaria o que a loja salvou nesse meio-tempo (ex.: fiscal).
+    const patch = { tecdocVersaoAtual: meta.versao, tecdocUltimaSync: new Date().toISOString() };
+    await prisma.$executeRaw`UPDATE "empresas"
+      SET "configuracoes" = COALESCE("configuracoes", '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb
+      WHERE "id" = ${empresaId}`;
 
     return {
       ok: true,

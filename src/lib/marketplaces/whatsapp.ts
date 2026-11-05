@@ -1,5 +1,6 @@
 import axios from "axios";
 import { prisma } from "../db";
+import { lerTokenConta } from "./tokens";
 
 // WhatsApp Business Cloud API
 // ===========================
@@ -35,7 +36,7 @@ export async function credenciaisWhatsapp(empresaId?: string, phoneNumberId?: st
       select: { contaExternaId: true, accessToken: true },
     });
     if (conta?.contaExternaId) {
-      const token = conta.accessToken || process.env.WHATSAPP_TOKEN;
+      const token = lerTokenConta(conta.accessToken) || process.env.WHATSAPP_TOKEN;
       if (!token) throw new Error("WhatsApp não configurado");
       return { phoneId: conta.contaExternaId, token };
     }

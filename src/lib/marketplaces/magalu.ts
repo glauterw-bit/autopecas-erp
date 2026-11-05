@@ -6,6 +6,7 @@ import type {
   MensagemRemota,
   PedidoRemoto,
 } from "./types";
+import { lerTokenConta } from "./tokens";
 
 // Adaptador Magalu (Magazine Luiza Marketplace)
 // =============================================
@@ -56,7 +57,7 @@ export class MagaluAdapter implements AdaptadorMarketplace {
     return axios.create({
       baseURL: BASE,
       timeout: 15_000,
-      headers: { Authorization: `Bearer ${conta.accessToken ?? ""}` },
+      headers: { Authorization: `Bearer ${lerTokenConta(conta.accessToken) ?? ""}` },
     });
   }
 

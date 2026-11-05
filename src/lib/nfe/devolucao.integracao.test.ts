@@ -70,7 +70,18 @@ describe.skipIf(!URL)("devolução contra o banco", () => {
     rotaDevolucao = await import("@/app/api/vendas/devolucao/route");
     db = (await import("../db")).prisma;
     const a = await db.empresa.create({
-      data: { razaoSocial: "LOJA TESTE DEVOLUCAO A", cnpj: CNPJ_A, uf: "SP", inscEstadual: "123456789012", regimeTributario: "LUCRO_PRESUMIDO" },
+      data: {
+        razaoSocial: "LOJA TESTE DEVOLUCAO A", cnpj: CNPJ_A, uf: "SP", inscEstadual: "123456789012", regimeTributario: "LUCRO_PRESUMIDO",
+        logradouro: "Rua A", numero: "1", bairro: "Centro", municipio: "Cotia", cep: "06700000",
+        // Checklist de prontidão fiscal completo (token fica no env, como reserva).
+        configuracoes: {
+          fiscal: {
+            focus: { serieNfe: "1", serieNfce: "1" },
+            certificado: { validoAte: "2099-01-01T00:00:00.000Z", origem: "informado", atualizadoEm: "2026-11-05T00:00:00.000Z" },
+            ibsCbs: { cst: "000", cClassTrib: "000001" },
+          },
+        },
+      },
     });
     const b = await db.empresa.create({ data: { razaoSocial: "LOJA TESTE DEVOLUCAO B", cnpj: CNPJ_B, uf: "SP" } });
     ids.A = a.id;

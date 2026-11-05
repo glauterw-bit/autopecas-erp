@@ -7,6 +7,7 @@ import type {
   MensagemRemota,
   PedidoRemoto,
 } from "./types";
+import { lerTokenConta, tokensParaGravar } from "./tokens";
 
 // Adaptador Amazon SP-API (Selling Partner API)
 // =============================================
@@ -59,18 +60,18 @@ export class AmazonAdapter implements AdaptadorMarketplace {
       conta.expiraEm &&
       conta.expiraEm.getTime() - Date.now() > 60_000
     ) {
-      return conta.accessToken;
+      return lerTokenConta(conta.accessToken)!;
     }
     const { data } = await axios.post(LWA_URL, {
       grant_type: "refresh_token",
-      refresh_token: conta.refreshToken ?? process.env.AMAZON_REFRESH_TOKEN,
+      refresh_token: lerTokenConta(conta.refreshToken) ?? process.env.AMAZON_REFRESH_TOKEN,
       client_id: process.env.AMAZON_LWA_CLIENT_ID,
       client_secret: process.env.AMAZON_LWA_CLIENT_SECRET,
     });
     await prisma.marketplaceConta.update({
       where: { id: this.contaId },
       data: {
-        accessToken: data.access_token,
+        ...tokensParaGravar({ accessToken: data.access_token as string }),
         expiraEm: new Date(Date.now() + (data.expires_in ?? 3600) * 1000),
       },
     });

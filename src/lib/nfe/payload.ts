@@ -22,6 +22,8 @@ import { dfeReferenciadoFocus, ibsCbsItemFocus, ibsCbsTotaisFocus } from "./focu
 export interface ConfigFiscalEmpresa {
   ibsCbs?: ConfigIbsCbsEmpresa;
   cstPisCofinsSimples?: string;
+  /** CST/CSOSN do ICMS que a loja definiu (com o contador) para produto sem CST no cadastro. */
+  cstIcmsPadrao?: string;
 }
 
 export interface EmitenteNota {
@@ -120,8 +122,8 @@ export type ResultadoMontagem =
   | { ok: true; payload: Record<string, unknown>; totais: TotaisNota; itens: ItemCalculado[] }
   | { ok: false; erros: string[] };
 
-const CSOSN_ACEITOS = new Set(["102", "103", "300", "400", "500"]);
-const CST_ACEITOS = new Set(["00", "40", "41", "60"]);
+export const CSOSN_ACEITOS = new Set(["102", "103", "300", "400", "500"]);
+export const CST_ACEITOS = new Set(["00", "40", "41", "60"]);
 /** Resolução SF 13/2012: 4% interestadual para importados (origens 1, 2, 3 e 8). */
 const ORIGENS_4_PORCENTO = new Set([1, 2, 3, 8]);
 
@@ -207,9 +209,11 @@ export function montarNota(d: DadosNota): ResultadoMontagem {
       );
     }
 
-    const cst = (it.cstIcms ?? "").trim();
+    // Cadastro do produto manda; sem ele, o padrão que a loja salvou em
+    // Configurações > Fiscal (só na venda: a devolução espelha a nota original).
+    const cst = ((it.cstIcms ?? "").trim() || (d.finalidade === 1 ? d.emitente.config?.cstIcmsPadrao ?? "" : "")).trim();
     if (!cst) {
-      erros.push(`${rotulo}: falta ${simples ? "CSOSN" : "CST"} do ICMS no produto.`);
+      erros.push(`${rotulo}: falta ${simples ? "CSOSN" : "CST"} do ICMS no produto (nem há padrão da empresa em Configurações > Fiscal).`);
     } else if (simples && !CSOSN_ACEITOS.has(cst)) {
       erros.push(
         `${rotulo}: CSOSN ${cst} não é aceito na emissão automática (aceitos: ${[...CSOSN_ACEITOS].join(", ")}). ` +

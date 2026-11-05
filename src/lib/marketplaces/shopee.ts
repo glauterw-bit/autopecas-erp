@@ -7,6 +7,7 @@ import type {
   MensagemRemota,
   PedidoRemoto,
 } from "./types";
+import { lerTokenConta } from "./tokens";
 
 // Adaptador Shopee Open Platform
 // =============================
@@ -52,7 +53,7 @@ export class ShopeeAdapter implements AdaptadorMarketplace {
       partnerId: Number(process.env.SHOPEE_PARTNER_ID ?? 0),
       partnerKey: process.env.SHOPEE_PARTNER_KEY ?? "",
       shopId: Number(conta.contaExternaId ?? 0),
-      accessToken: conta.accessToken ?? "",
+      accessToken: lerTokenConta(conta.accessToken) ?? "",
     };
   }
 
