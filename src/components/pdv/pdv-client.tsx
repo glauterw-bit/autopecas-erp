@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Camera, Car, CheckCircle2, MapPin, Minus, PackageX, Plus, Search, ShieldCheck, Trash2, User, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, BadgeCheck, Camera, Car, CheckCircle2, MapPin, Minus, PackageX, Plus, Search, ShieldCheck, Trash2, User, Wrench, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +34,8 @@ interface Produto {
   garantiaMeses: number | null;
   unidade: string;
   matchTipo: "EXATO" | "APLICACAO" | "TEXTO";
+  aplicacaoVerificada?: boolean;
+  revisaoCadastro?: boolean;
 }
 
 interface ItemCarrinho {
@@ -52,6 +55,8 @@ const TECLAS = [
   { tecla: "F3", acao: "Placa" },
   { tecla: "F4", acao: "Foto IA" },
   { tecla: "F6", acao: "Desconto" },
+  { tecla: "F7", acao: "Devolução" },
+  { tecla: "F8", acao: "Não tínhamos" },
   { tecla: "F9", acao: "Pagar" },
   { tecla: "ESC", acao: "Cancelar" },
 ];
@@ -64,6 +69,7 @@ function margemHealth(precoUnitario: number, custo: number, precoMin: number | n
 }
 
 export function PdvClient() {
+  const router = useRouter();
   const [termo, setTermo] = useState("");
   const [resultados, setResultados] = useState<Produto[]>([]);
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
@@ -290,7 +296,7 @@ export function PdvClient() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (mostrarPagamento) return;
+      if (mostrarPagamento || vendaPerdida) return;
       if (sucesso) { if (e.key === "Enter") setSucesso(null); return; }
       if (e.key === "F9") {
         e.preventDefault();
@@ -299,6 +305,14 @@ export function PdvClient() {
           else fecharSemPagamento();
         }
       }
+      else if (e.key === "F8") {
+        // "Não tínhamos": registra a venda perdida em 2 segundos.
+        e.preventDefault();
+        const sel = resultados[selecionado];
+        if (sel && sel.estoque <= 0) setVendaPerdida({ descricao: `${sel.nome} (SKU ${sel.sku})`, produtoId: sel.id });
+        else setVendaPerdida({ descricao: termo.replace(/^\d+\s*\*\s*/, "").trim() });
+      }
+      else if (e.key === "F7") { e.preventDefault(); router.push("/pdv/devolucao"); }
       else if (e.key === "F2") { e.preventDefault(); buscarCliente(); }
       else if (e.key === "F3") { e.preventDefault(); const p = prompt("Placa do veículo:"); if (p) consultarPlaca(p); }
       else if (e.key === "F6") { e.preventDefault(); const d = prompt("Desconto geral (R$):"); if (d) setDescontoGeral(Number(d.replace(",", ".")) || 0); }
@@ -309,7 +323,7 @@ export function PdvClient() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [carrinho, resultados, selecionado, termo, mostrarPagamento, sucesso, adicionar, buscarCliente, consultarPlaca, tipoVenda, fecharSemPagamento]);
+  }, [carrinho, resultados, selecionado, termo, mostrarPagamento, vendaPerdida, sucesso, adicionar, buscarCliente, consultarPlaca, tipoVenda, fecharSemPagamento, router]);
 
   return (
     <div className="grid h-[calc(100vh-3rem)] grid-cols-[1fr_420px] gap-4">
@@ -327,6 +341,13 @@ export function PdvClient() {
               />
               <Button variant="outline" size="icon" title="Identificar peça por foto (AutoVision)">
                 <Camera className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                title="Não tínhamos a peça: registrar venda perdida (F8)"
+                onClick={() => setVendaPerdida({ descricao: termo.replace(/^\d+\s*\*\s*/, "").trim() })}
+              >
+                <PackageX className="h-4 w-4" /> Não tínhamos <kbd className="ml-1 rounded border px-1 text-[10px]">F8</kbd>
               </Button>
               <Button variant="outline" size="icon" title="Buscar por placa (F3)" onClick={() => { const p = prompt("Placa:"); if (p) consultarPlaca(p); }}>
                 <Car className="h-4 w-4" />
@@ -361,7 +382,7 @@ export function PdvClient() {
                   className="mt-3"
                   onClick={() => setVendaPerdida({ descricao: termo })}
                 >
-                  <PackageX className="h-3 w-3" /> Registrar venda perdida
+                  <PackageX className="h-3 w-3" /> Não tínhamos (F8)
                 </Button>
               </div>
             )}
@@ -402,7 +423,17 @@ export function PdvClient() {
                           }}
                           className="rounded border border-amber-400/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 hover:bg-amber-500/10"
                         >
-                          Registrar venda perdida
+                          Não tínhamos (F8)
+                        </span>
+                      )}
+                      {p.aplicacaoVerificada && (
+                        <span className="flex items-center gap-0.5 text-emerald-600" title="Aplicação conferida por alguém da loja">
+                          <BadgeCheck className="h-3 w-3" /> aplicação verificada
+                        </span>
+                      )}
+                      {p.revisaoCadastro && (
+                        <span className="flex items-center gap-0.5 text-amber-600" title="Já voltou por erro de cadastro: confira o veículo antes de vender">
+                          <Wrench className="h-3 w-3" /> cadastro em revisão
                         </span>
                       )}
                       {p.localizacao && (
@@ -569,6 +600,8 @@ export function PdvClient() {
           descricaoInicial={vendaPerdida.descricao}
           produtoId={vendaPerdida.produtoId}
           motivoInicial={vendaPerdida.produtoId ? "SEM_ESTOQUE" : "NAO_TRABALHAMOS"}
+          veiculoInicial={veiculoDescricao ?? ""}
+          clienteId={cliente?.id ?? null}
           onClose={() => setVendaPerdida(null)}
           onResultado={notificar}
         />

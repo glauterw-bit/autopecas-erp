@@ -9,6 +9,8 @@ import {
   criarContasReceberParceladas,
   consumirLimiteCrediario,
 } from "@/lib/vendas/crediario";
+import { MOTIVOS_RETORNO, ROTULO_MOTIVO_RETORNO, marcaRevisaoCadastro } from "@/lib/crm/retorno";
+import { registrarAuditoria } from "@/lib/crm/auditoria";
 
 // Fechamento de venda CONDICIONAL
 // ===============================
@@ -18,6 +20,9 @@ import {
 // { acao: "devolver", itens?: [{ itemVendaId, quantidade }] } → devolve
 //   tudo (sem itens) ou parcial, estornando estoque (ENTRADA com
 //   origemTipo CONDICIONAL_DEVOLUCAO). Devolveu tudo → status CANCELADA.
+//   motivo é obrigatório (ERRO_CADASTRO | ERRO_BALCAO | GARANTIA_DEFEITO |
+//   DESISTENCIA): grava RetornoVenda (origem CONDICIONAL) e, se for erro de
+//   cadastro, marca o produto para revisão. Grava LogAuditoria.
 
 const bodySchema = z.discriminatedUnion("acao", [
   z.object({
@@ -26,6 +31,10 @@ const bodySchema = z.discriminatedUnion("acao", [
   }),
   z.object({
     acao: z.literal("devolver"),
+    motivo: z.enum(MOTIVOS_RETORNO, {
+      errorMap: () => ({ message: "Informe o motivo do retorno" }),
+    }),
+    observacao: z.string().trim().max(500).optional(),
     itens: z
       .array(
         z.object({
@@ -207,6 +216,58 @@ export const POST = comAuth<Ctx>("VENDEDOR", async (req, ctx, usuario) => {
         },
       });
     }
+
+    // Motivo do retorno (Balcão que aprende).
+    for (const [itemVendaId, devolver] of devolucoes) {
+      const item = venda.itens.find((i) => i.id === itemVendaId)!;
+      const r = await tx.retornoVenda.create({
+        data: {
+          empresaId: venda.empresaId,
+          vendaId: venda.id,
+          itemVendaId,
+          produtoId: item.produtoId,
+          origem: "CONDICIONAL",
+          quantidade: devolver,
+          motivo: body.motivo,
+          voltaEstoque: true,
+          observacao: body.observacao,
+          usuarioId: usuario.id,
+        },
+      });
+      if (marcaRevisaoCadastro(body.motivo)) {
+        const antes = await tx.produto.findUnique({
+          where: { id: item.produtoId },
+          select: { revisaoCadastro: true, aplicacaoVerificadaEm: true, aplicacaoVerificadaPorNome: true },
+        });
+        await tx.produto.update({
+          where: { id: item.produtoId },
+          data: {
+            revisaoCadastro: true,
+            revisaoCadastroEm: new Date(),
+            revisaoCadastroMotivo: `Condicional #${venda.numero} voltou: ${ROTULO_MOTIVO_RETORNO[body.motivo].toLowerCase()}${body.observacao ? ` — ${body.observacao}` : ""}`.slice(0, 300),
+            aplicacaoVerificadaEm: null,
+            aplicacaoVerificadaPorId: null,
+            aplicacaoVerificadaPorNome: null,
+          },
+        });
+        await registrarAuditoria(tx, {
+          usuarioId: usuario.id,
+          acao: "CADASTRO_MARCADO_REVISAO",
+          entidade: "Produto",
+          entidadeId: item.produtoId,
+          antes,
+          depois: { revisaoCadastro: true, aplicacaoVerificadaEm: null, retornoId: r.id },
+        });
+      }
+    }
+    await registrarAuditoria(tx, {
+      usuarioId: usuario.id,
+      acao: "CONDICIONAL_DEVOLUCAO",
+      entidade: "Venda",
+      entidadeId: venda.id,
+      antes: { status: venda.status, itens: venda.itens.map((i) => ({ id: i.id, quantidade: Number(i.quantidade) })) },
+      depois: { motivo: body.motivo, devolvido: [...devolucoes].map(([id, q]) => ({ itemVendaId: id, quantidade: q })) },
+    });
 
     // Recalcula totais a partir dos itens RELIDOS dentro da transação.
     const itensAtuais = await tx.itemVenda.findMany({ where: { vendaId: venda.id } });

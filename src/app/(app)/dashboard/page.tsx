@@ -6,6 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/utils";
+import { filtroVendaFaturada } from "@/lib/vendas/venda-faturada";
+import { carregarIndicadoresBalcao } from "@/lib/crm/consultas";
+import { BalcaoCard } from "@/components/dashboard/balcao-card";
 
 async function carregarDados() {
   const empresaId = await empresaAtualId();
@@ -15,14 +18,14 @@ async function carregarDados() {
   const inicioHoje = new Date();
   inicioHoje.setHours(0, 0, 0, 0);
 
-  const [hoje, mes, receber, pagar, insights] = await Promise.all([
+  const [hoje, mes, receber, pagar, insights, balcao] = await Promise.all([
     prisma.venda.aggregate({
-      where: { empresaId, criadaEm: { gte: inicioHoje }, status: { not: "CANCELADA" } },
+      where: { empresaId, criadaEm: { gte: inicioHoje }, ...filtroVendaFaturada },
       _sum: { valorTotal: true, margemBruta: true },
       _count: { _all: true },
     }),
     prisma.venda.aggregate({
-      where: { empresaId, criadaEm: { gte: inicioMes }, status: { not: "CANCELADA" } },
+      where: { empresaId, criadaEm: { gte: inicioMes }, ...filtroVendaFaturada },
       _sum: { valorTotal: true, margemBruta: true },
       _count: { _all: true },
     }),
@@ -41,13 +44,14 @@ async function carregarDados() {
       orderBy: [{ severidade: "asc" }, { criadoEm: "desc" }],
       take: 8,
     }),
+    carregarIndicadoresBalcao(empresaId),
   ]);
 
-  return { hoje, mes, receber, pagar, insights };
+  return { hoje, mes, receber, pagar, insights, balcao };
 }
 
 export default async function DashboardPage() {
-  const { hoje, mes, receber, pagar, insights } = await carregarDados();
+  const { hoje, mes, receber, pagar, insights, balcao } = await carregarDados();
 
   const cards = [
     {
@@ -113,6 +117,8 @@ export default async function DashboardPage() {
           );
         })}
       </div>
+
+      <BalcaoCard {...balcao} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { comAuth } from "@/lib/auth/guard";
+import { filtroVendaFaturada, sqlVendaFaturada } from "@/lib/vendas/venda-faturada";
+import { carregarIndicadoresBalcao } from "@/lib/crm/consultas";
 
 export const GET = comAuth("ESTOQUISTA", async (_req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
@@ -20,14 +22,15 @@ export const GET = comAuth("ESTOQUISTA", async (_req, _ctx, usuario) => {
     insightsCriticos,
     topProdutos,
     vendasPorDia,
+    balcao,
   ] = await Promise.all([
     prisma.venda.aggregate({
-      where: { empresaId, criadaEm: { gte: inicioHoje }, status: { not: "CANCELADA" } },
+      where: { empresaId, criadaEm: { gte: inicioHoje }, ...filtroVendaFaturada },
       _sum: { valorTotal: true, margemBruta: true },
       _count: { _all: true },
     }),
     prisma.venda.aggregate({
-      where: { empresaId, criadaEm: { gte: inicioMes }, status: { not: "CANCELADA" } },
+      where: { empresaId, criadaEm: { gte: inicioMes }, ...filtroVendaFaturada },
       _sum: { valorTotal: true, margemBruta: true },
       _count: { _all: true },
     }),
@@ -55,18 +58,19 @@ export const GET = comAuth("ESTOQUISTA", async (_req, _ctx, usuario) => {
         JOIN produtos p ON p.id = iv."produtoId"
        WHERE v."empresaId" = ${empresaId}
          AND v."criadaEm" >= ${inicioMes}
-         AND v.status NOT IN ('CANCELADA')
+         AND ${sqlVendaFaturada}
        GROUP BY p.id, p.nome
        ORDER BY valor DESC
        LIMIT 10`,
     prisma.$queryRaw<Array<{ dia: Date; total: number }>>`
-      SELECT DATE_TRUNC('day', "criadaEm") AS dia, SUM("valorTotal")::float AS total
-        FROM vendas
-       WHERE "empresaId" = ${empresaId}
-         AND "criadaEm" >= ${inicioMes}
-         AND status NOT IN ('CANCELADA')
+      SELECT DATE_TRUNC('day', v."criadaEm") AS dia, SUM(v."valorTotal")::float AS total
+        FROM vendas v
+       WHERE v."empresaId" = ${empresaId}
+         AND v."criadaEm" >= ${inicioMes}
+         AND ${sqlVendaFaturada}
        GROUP BY 1
        ORDER BY 1`,
+    carregarIndicadoresBalcao(empresaId),
   ]);
 
   return NextResponse.json({
@@ -93,5 +97,6 @@ export const GET = comAuth("ESTOQUISTA", async (_req, _ctx, usuario) => {
     insightsCriticos,
     topProdutos,
     vendasPorDia,
+    balcao,
   });
 });

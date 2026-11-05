@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { comAuth } from "@/lib/auth/guard";
+import { comAuth, ApiError } from "@/lib/auth/guard";
+import { podePerfil } from "@/lib/auth/config";
+import { protegerCliente } from "@/lib/crm/acesso";
 
 const clienteSchema = z.object({
   tipo: z.enum(["PF", "PJ", "ESTRANGEIRO"]).default("PF"),
@@ -49,12 +51,18 @@ export const GET = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
     take: 100,
     orderBy: { nome: "asc" },
   });
-  return NextResponse.json(clientes);
+  // LGPD: documento completo, limite, saldo e score só para FINANCEIRO+ ou
+  // para a pessoa vendedora responsável pela carteira.
+  return NextResponse.json(clientes.map((c) => protegerCliente(usuario, c)));
 });
 
 export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
   const body = clienteSchema.parse(await req.json());
+  // Limite de crédito só com perfil FINANCEIRO ou acima.
+  if (body.limiteCredito > 0 && !podePerfil(usuario.perfil, "FINANCEIRO")) {
+    throw new ApiError(403, "Limite de crédito só pode ser definido pelo financeiro ou pela gerência.");
+  }
   const cliente = await prisma.cliente.create({ data: { ...body, empresaId } });
-  return NextResponse.json(cliente, { status: 201 });
+  return NextResponse.json(protegerCliente(usuario, cliente), { status: 201 });
 });

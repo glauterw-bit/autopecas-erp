@@ -1,9 +1,11 @@
-import { BarChart3, TrendingUp, Package, Users } from "lucide-react";
+import Link from "next/link";
+import { Archive, BarChart3, PackageX, ShieldCheck, TrendingUp, Package, Users } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatBRL } from "@/lib/utils";
+import { sqlVendaFaturada } from "@/lib/vendas/venda-faturada";
 
 export const dynamic = "force-dynamic";
 
@@ -19,17 +21,17 @@ export default async function RelatoriosPage() {
         FROM itens_venda iv
         JOIN vendas v ON v.id = iv."vendaId"
         JOIN produtos p ON p.id = iv."produtoId"
-       WHERE v."empresaId" = ${empresaId} AND v."criadaEm" >= ${inicioMes} AND v.status NOT IN ('CANCELADA')
+       WHERE v."empresaId" = ${empresaId} AND v."criadaEm" >= ${inicioMes} AND ${sqlVendaFaturada}
        GROUP BY p.id, p.nome ORDER BY valor DESC LIMIT 10`,
     prisma.$queryRaw<Array<{ nome: string; total: number; pedidos: number }>>`
       SELECT c.nome, SUM(v."valorTotal")::float AS total, COUNT(*)::int AS pedidos
         FROM vendas v JOIN clientes c ON c.id = v."clienteId"
-       WHERE v."empresaId" = ${empresaId} AND v.status NOT IN ('CANCELADA')
+       WHERE v."empresaId" = ${empresaId} AND ${sqlVendaFaturada}
        GROUP BY c.id, c.nome ORDER BY total DESC LIMIT 10`,
     prisma.$queryRaw<Array<{ forma: string; total: number }>>`
       SELECT pg."formaPagamento" AS forma, SUM(pg.valor)::float AS total
         FROM pagamentos_venda pg JOIN vendas v ON v.id = pg."vendaId"
-       WHERE v."empresaId" = ${empresaId} AND v.status NOT IN ('CANCELADA')
+       WHERE v."empresaId" = ${empresaId} AND ${sqlVendaFaturada}
        GROUP BY pg."formaPagamento" ORDER BY total DESC`,
     prisma.produto.groupBy({
       by: ["curva"],
@@ -43,8 +45,24 @@ export default async function RelatoriosPage() {
       <div>
         <h1 className="text-3xl font-bold">Relatórios</h1>
         <p className="text-muted-foreground">
-          Top produtos, melhores clientes, formas de pagamento e curva ABC.
+          Top produtos, melhores clientes, formas de pagamento e curva ABC. Só venda concluída conta.
         </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {[
+          { href: "/relatorios/vendas-perdidas", icon: PackageX, t: "Vendas perdidas", s: "Por peça e motivo, com sugestão de compra" },
+          { href: "/relatorios/estoque-parado", icon: Archive, t: "Estoque parado", s: "Sem venda há 90, 180 ou 365 dias" },
+          { href: "/produtos/qualidade", icon: ShieldCheck, t: "Qualidade do cadastro", s: "Sem NCM, EAN, aplicação, duplicados" },
+        ].map((r) => (
+          <Link key={r.href} href={r.href} className="flex items-start gap-3 rounded-lg border p-4 hover:bg-secondary">
+            <r.icon className="mt-0.5 h-5 w-5 text-accent" />
+            <div>
+              <div className="font-medium">{r.t}</div>
+              <div className="text-xs text-muted-foreground">{r.s}</div>
+            </div>
+          </Link>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

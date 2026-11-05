@@ -66,6 +66,7 @@ model Empresa {
   pedidosCompra        PedidoCompra[]
   insightsIA           InsightIA[]
   vendasPerdidas       VendaPerdida[]
+  retornosVenda        RetornoVenda[]
   inventarios          Inventario[]
   lancamentosContabeis LancamentoContabil[]
 
@@ -102,6 +103,7 @@ model VendaPerdida {
   produtoId        String?
   produto          Produto?           @relation(fields: [produtoId], references: [id])
   descricaoBuscada String
+  veiculoDescricao String? // veículo do cliente (opcional): "Sprinter 415 2013"
   quantidade       Decimal            @default(1) @db.Decimal(14, 3)
   motivo           MotivoVendaPerdida @default(SEM_ESTOQUE)
   clienteId        String?
@@ -120,6 +122,38 @@ enum MotivoVendaPerdida {
   PRAZO_ENTREGA
   NAO_TRABALHAMOS
   OUTRO
+}
+
+// Retorno de peça vendida (devolução de venda ou volta de condicional) com
+// motivo obrigatório. ERRO_CADASTRO marca o produto para revisão de cadastro.
+// Não substitui a NF-e de devolução (fiscal) nem o estorno financeiro.
+model RetornoVenda {
+  id           String        @id @default(cuid())
+  empresaId    String
+  empresa      Empresa       @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  vendaId      String
+  itemVendaId  String
+  produtoId    String
+  produto      Produto       @relation(fields: [produtoId], references: [id])
+  origem       String        @default("VENDA") // VENDA | CONDICIONAL
+  quantidade   Decimal       @db.Decimal(14, 3)
+  motivo       MotivoRetorno
+  voltaEstoque Boolean       @default(true)
+  observacao   String?
+  usuarioId    String?
+  criadoEm     DateTime      @default(now())
+
+  @@index([empresaId, criadoEm])
+  @@index([empresaId, motivo])
+  @@index([itemVendaId])
+  @@map("retornos_venda")
+}
+
+enum MotivoRetorno {
+  ERRO_CADASTRO // peça errada por cadastro (aplicação/código errado no sistema)
+  ERRO_BALCAO // peça errada no balcão (quem vendeu escolheu errado)
+  GARANTIA_DEFEITO // garantia / defeito
+  DESISTENCIA // cliente desistiu
 }
 
 // Inventário rotativo: contagem física → conferência → ajuste aprovado.
@@ -445,6 +479,14 @@ model Produto {
   fotos           String[] @default([])
   fichaTecnicaUrl String?
 
+  // qualidade de cadastro (Balcão que aprende)
+  aplicacaoVerificadaEm      DateTime? // selo "aplicação verificada"
+  aplicacaoVerificadaPorId   String?
+  aplicacaoVerificadaPorNome String?
+  revisaoCadastro            Boolean   @default(false) // marcado por retorno "erro de cadastro" ou à mão
+  revisaoCadastroMotivo      String?
+  revisaoCadastroEm          DateTime?
+
   ativo                  Boolean @default(true)
   permiteVendaSemEstoque Boolean @default(false)
   controlaSerial         Boolean @default(false)
@@ -471,6 +513,7 @@ model Produto {
   precosPorVeiculo    PrecoPorVeiculo[]
   fornecedoresGrade   ProdutoFornecedor[]
   vendasPerdidas      VendaPerdida[]
+  retornosVenda       RetornoVenda[]
   itensInventario     ItemInventario[]
 
   @@unique([empresaId, sku])
@@ -478,6 +521,7 @@ model Produto {
   @@index([empresaId, codigoFabricante])
   @@index([empresaId, codigoOem])
   @@index([empresaId, ativo])
+  @@index([empresaId, revisaoCadastro])
   @@map("produtos")
 }
 
@@ -684,6 +728,12 @@ model Cliente {
   scoreChurn   Float? // probabilidade de não voltar
   ticketMedio  Decimal?  @db.Decimal(14, 2)
   ultimaCompra DateTime?
+
+  // CRM de oficina
+  vendedorResponsavelId String? // usuário da carteira (vê crédito do cliente)
+  prazoPagamentoDias    Int? // prazo combinado (ex.: 28 = boleto 28 dias)
+  ultimoContatoEm       DateTime? // última ligação/contato registrado pela loja
+  ultimoContatoNota     String?
 
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
