@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { prisma } from "../db";
+import { erroSeguro } from "../log-seguro";
 import { usuarioDaSessao, podePerfil } from "./config";
 
 // Guard central das rotas de API
@@ -62,7 +63,7 @@ export function respostaErro(e: unknown): NextResponse {
   const msg = (e as Error).message ?? "";
   const negocio =
     msg.length < 160 && !/prisma|invocation|constraint|connect|ECONN|timeout/i.test(msg);
-  console.error("[api]", e);
+  console.error("[api]", erroSeguro(e));
   return NextResponse.json(
     { erro: negocio && msg ? msg : "Erro interno" },
     { status: negocio ? 400 : 500 },

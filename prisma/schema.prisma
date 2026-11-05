@@ -2066,3 +2066,21 @@ model ImportacaoChave {
   @@index([entidade, entidadeId])
   @@map("importacao_chaves")
 }
+
+// Aceite dos documentos legais (termos de uso, privacidade, DPA) por usuário e
+// versão. Sem FK de propósito: é prova do aceite e não pode travar a exclusão
+// da empresa nem alterar os models Usuario/Empresa.
+model AceiteTermos {
+  id        String   @id @default(cuid())
+  usuarioId String
+  empresaId String
+  documento String // "TERMOS" | "PRIVACIDADE" | "DPA"
+  versao    String
+  ip        String?
+  userAgent String?
+  aceitoEm  DateTime @default(now())
+
+  @@unique([usuarioId, documento, versao])
+  @@index([empresaId, aceitoEm])
+  @@map("aceites_termos")
+}

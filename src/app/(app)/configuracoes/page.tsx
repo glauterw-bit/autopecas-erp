@@ -51,6 +51,9 @@ export default async function ConfiguracoesPage() {
         <Link href="/configuracoes/usuarios" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
           Usuários e perfis
         </Link>
+        <Link href="/configuracoes/meus-dados" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
+          Meus dados
+        </Link>
       </div>
       {perfil === "ADMIN" && (
         <Card>

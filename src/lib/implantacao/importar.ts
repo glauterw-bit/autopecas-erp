@@ -17,6 +17,7 @@
 // registro do lote (para baixar o relatório).
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { Entidade, RegistroBruto } from "./tipos";
+import { erroSeguro } from "../log-seguro";
 import {
   validar,
   type ClienteDados,
@@ -837,7 +838,7 @@ export async function importar(db: PrismaClient, opcoes: OpcoesImportacao): Prom
     else if (entidade === "FORNECEDOR") await importarFornecedores(ctx, v as RegistroValidado<FornecedorDados>[]);
     else if (entidade === "CONTA_RECEBER") await importarContasReceber(ctx, v as RegistroValidado<ContaReceberDados>[]);
   } catch (e) {
-    console.error("[implantacao]", e);
+    console.error("[implantacao]", erroSeguro(e));
     mensagemErro =
       "A gravação parou no meio. O que já foi gravado fica; rode de novo depois de corrigir (não duplica). " +
       ((e as Error).message ?? "").slice(0, 300);
