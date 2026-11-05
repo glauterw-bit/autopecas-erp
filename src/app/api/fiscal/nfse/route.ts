@@ -1,3 +1,4 @@
+import { registrarAuditoria } from "@/lib/auth/auditoria";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { cancelarNfse, emitirNfse } from "@/lib/nfe/nfse";
@@ -43,5 +44,13 @@ export const POST = comAuth("FINANCEIRO", async (req, _ctx, usuario) => {
   });
   if (!nota) throw new ApiError(404, "Nota fiscal não encontrada");
   const out = await cancelarNfse(body.notaId, body.motivo, empresaId);
+  await registrarAuditoria(prisma, {
+    empresaId,
+    usuarioId: usuario.id,
+    acao: "NFSE_CANCELADA",
+    entidade: "NotaFiscal",
+    entidadeId: body.notaId,
+    depois: { motivo: body.motivo },
+  });
   return NextResponse.json(out);
 });

@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { PackageX } from "lucide-react";
 import { empresaAtualId } from "@/lib/sessao";
@@ -16,6 +17,7 @@ export default async function VendasPerdidasPage({
 }: {
   searchParams: Promise<{ dias?: string; motivo?: string }>;
 }) {
+  await exigirPerfilPagina("/relatorios/vendas-perdidas");
   const sp = await searchParams;
   const dias = PERIODOS.includes(Number(sp.dias)) ? Number(sp.dias) : 30;
   const motivo = (MOTIVOS_VENDA_PERDIDA as readonly string[]).includes(sp.motivo ?? "")

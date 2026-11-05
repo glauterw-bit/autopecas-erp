@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { Brain, Camera, FileScan, MessageSquare, ShieldAlert, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
@@ -54,6 +55,7 @@ const recursos = [
 export const dynamic = "force-dynamic";
 
 export default async function IAPage() {
+  await exigirPerfilPagina("/ia");
   const empresaId = await empresaAtualId();
   const [insights, contagem] = await Promise.all([
     prisma.insightIA.findMany({

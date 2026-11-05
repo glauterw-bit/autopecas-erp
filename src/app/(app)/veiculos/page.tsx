@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -5,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 export const dynamic = "force-dynamic";
 
 export default async function VeiculosPage() {
+  await exigirPerfilPagina("/veiculos");
   const montadoras = await prisma.montadora.findMany({
     include: {
       modelos: { include: { _count: { select: { versoes: true } } } },

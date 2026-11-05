@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { prisma } from "../db";
+import { podePerfil } from "./perfis";
 
 // Sistema de autenticação simples mas seguro (sem dependência externa)
 // =====================================================================
@@ -147,19 +148,8 @@ export async function usuarioDaSessao() {
 }
 
 // --- RBAC ---------------------------------------------------------------
-const HIERARQUIA: Record<string, number> = {
-  ADMIN: 100,
-  GERENTE: 80,
-  FINANCEIRO: 60,
-  VENDEDOR: 50,
-  CAIXA: 50,
-  TECNICO: 40,
-  ESTOQUISTA: 30,
-};
-
-export function podePerfil(atual: string, necessario: string): boolean {
-  return (HIERARQUIA[atual] ?? 0) >= (HIERARQUIA[necessario] ?? 100);
-}
+// A hierarquia mora em ./perfis (sem banco), para o menu usar a mesma regra.
+export { podePerfil };
 
 export async function exigirPerfil(necessario: string) {
   const u = await usuarioDaSessao();

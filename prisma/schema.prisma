@@ -268,8 +268,26 @@ model Usuario {
   movimentosCaixa MovimentoCaixa[]
   sessoesCaixa    SessaoCaixa[]
   auditorias      LogAuditoria[]
+  tokensConta     TokenConta[]
 
   @@map("usuarios")
+}
+
+// Link de uso único para convite de usuário e redefinição de senha.
+// Só o hash SHA-256 do token é guardado; o token em si aparece uma vez, no link.
+model TokenConta {
+  id          String    @id @default(cuid())
+  usuarioId   String
+  usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipo        String // CONVITE | REDEFINICAO_SENHA
+  tokenHash   String    @unique
+  expiraEm    DateTime
+  usadoEm     DateTime?
+  criadoPorId String?
+  criadoEm    DateTime  @default(now())
+
+  @@index([usuarioId, tipo])
+  @@map("tokens_conta")
 }
 
 enum PerfilUsuario {

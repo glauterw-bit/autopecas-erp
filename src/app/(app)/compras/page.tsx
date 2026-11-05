@@ -1,9 +1,11 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { ArrowRight, FileScan, PackageSearch, Upload } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-export default function ComprasPage() {
+export default async function ComprasPage() {
+  await exigirPerfilPagina("/compras");
   return (
     <div className="space-y-6">
       <div>

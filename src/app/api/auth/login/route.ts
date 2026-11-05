@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { criarSessao, verificarSenha, verificarTotp } from "@/lib/auth/config";
-import { permitido } from "@/lib/auth/rate-limit";
+import { permitidoAsync } from "@/lib/auth/rate-limit";
 import { respostaErro } from "@/lib/auth/guard";
 
 const schema = z.object({
@@ -11,15 +11,23 @@ const schema = z.object({
   totp: z.string().regex(/^\d{6}$/).optional(),
 });
 
-const LIMITE = 5;
+// Limites em 15 minutos: por usuário (e-mail) e por IP. Contam toda tentativa,
+// inclusive a de código 2FA. Usa Redis quando houver REDIS_URL.
+const LIMITE_POR_USUARIO = 8;
+const LIMITE_POR_IP = 30;
 const JANELA_MS = 15 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
   try {
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
     const body = schema.parse(await req.json());
+    const email = body.email.trim().toLowerCase();
 
-    if (!permitido(`login:${ip}`, LIMITE * 4, JANELA_MS) || !permitido(`login:${ip}:${body.email}`, LIMITE, JANELA_MS)) {
+    const [okUsuario, okIp] = await Promise.all([
+      permitidoAsync(`login:usuario:${email}`, LIMITE_POR_USUARIO, JANELA_MS),
+      permitidoAsync(`login:ip:${ip}`, LIMITE_POR_IP, JANELA_MS),
+    ]);
+    if (!okUsuario || !okIp) {
       return NextResponse.json(
         { erro: "Muitas tentativas. Aguarde 15 minutos." },
         { status: 429 },

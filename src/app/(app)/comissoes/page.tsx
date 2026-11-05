@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,6 +8,7 @@ import { formatBRL } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function ComissoesPage() {
+  await exigirPerfilPagina("/comissoes");
   const empresaId = await empresaAtualId();
   const hoje = new Date();
   const competencia = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;

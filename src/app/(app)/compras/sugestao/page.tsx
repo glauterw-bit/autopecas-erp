@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { SugestaoCompra } from "@/components/compras/sugestao-compra";
 import { VendasPerdidas } from "@/components/compras/vendas-perdidas";
 
@@ -7,7 +8,8 @@ export const dynamic = "force-dynamic";
 // Os dados vêm das APIs autenticadas (/api/compras/sugestao e
 // /api/vendas-perdidas) — mesma fonte usada pelo PDV e pelos jobs.
 
-export default function SugestaoCompraPage() {
+export default async function SugestaoCompraPage() {
+  await exigirPerfilPagina("/compras/sugestao");
   return (
     <div className="space-y-6">
       <div>

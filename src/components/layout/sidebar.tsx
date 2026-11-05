@@ -26,9 +26,12 @@ import {
   Wrench,
   Banknote,
   Boxes,
+  LogOut,
+  UserCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { podeAbrirRota } from "@/lib/auth/perfis";
 
 const itens = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -55,8 +58,18 @@ const itens = [
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
-export function Sidebar() {
+export function Sidebar({
+  perfil,
+  nomeUsuario,
+  nomeEmpresa,
+}: {
+  perfil: string;
+  nomeUsuario: string;
+  nomeEmpresa: string;
+}) {
   const path = usePathname();
+  // Esconde o que o perfil não pode abrir (a página também confere no servidor).
+  const visiveis = itens.filter((it) => podeAbrirRota(perfil, it.href));
   return (
     <aside className="flex h-screen w-64 flex-col border-r bg-card">
       <div className="flex h-16 items-center gap-2 border-b px-6">
@@ -69,7 +82,7 @@ export function Sidebar() {
         </div>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {itens.map((it) => {
+        {visiveis.map((it) => {
           const Icon = it.icon;
           const ativo = path?.startsWith(it.href);
           return (
@@ -94,8 +107,28 @@ export function Sidebar() {
         <ThemeToggle />
       </div>
       <div className="border-t p-4 text-xs text-muted-foreground">
-        <div className="font-semibold text-foreground">Loja Demo</div>
-        <div>CNPJ 00.000.000/0001-00</div>
+        <div className="truncate font-semibold text-foreground" title={nomeEmpresa}>
+          {nomeEmpresa}
+        </div>
+        <div className="truncate" title={nomeUsuario}>
+          {nomeUsuario}
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <Link
+            href="/conta"
+            className="flex flex-1 items-center gap-1 rounded-md border px-2 py-1.5 text-foreground hover:bg-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            <UserCircle className="h-3.5 w-3.5" /> Minha conta
+          </Link>
+          <form action="/api/auth/logout" method="post">
+            <button
+              type="submit"
+              className="flex items-center gap-1 rounded-md border px-2 py-1.5 text-foreground hover:bg-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              <LogOut className="h-3.5 w-3.5" /> Sair
+            </button>
+          </form>
+        </div>
       </div>
     </aside>
   );

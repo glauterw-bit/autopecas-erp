@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,6 +19,7 @@ const statusVariant: Record<string, "muted" | "warning" | "success" | "destructi
 };
 
 export default async function RMAPage() {
+  await exigirPerfilPagina("/rma");
   const empresaId = await empresaAtualId();
   const rmas = await prisma.solicitacaoRMA.findMany({
     where: { empresaId },

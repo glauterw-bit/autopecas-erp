@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
+import { registrarAuditoria } from "@/lib/auth/auditoria";
 
 // Finalização do inventário (só GERENTE+)
 // ---------------------------------------
@@ -44,10 +45,22 @@ export const POST = comAuth<Ctx>("GERENTE", async (req, ctx, usuario) => {
   }
 
   if (body.acao === "cancelar") {
-    const cancelado = await prisma.inventario.update({
-      where: { id: inventario.id },
-      data: { status: "CANCELADO", finalizadoEm: new Date() },
-      select: { id: true, status: true, finalizadoEm: true },
+    const cancelado = await prisma.$transaction(async (tx) => {
+      const c = await tx.inventario.update({
+        where: { id: inventario.id },
+        data: { status: "CANCELADO", finalizadoEm: new Date() },
+        select: { id: true, status: true, finalizadoEm: true },
+      });
+      await registrarAuditoria(tx, {
+        empresaId: usuario.empresaId,
+        usuarioId: usuario.id,
+        acao: "INVENTARIO_CANCELADO",
+        entidade: "Inventario",
+        entidadeId: inventario.id,
+        antes: { status: inventario.status },
+        depois: { status: "CANCELADO" },
+      });
+      return c;
     });
     return NextResponse.json(cancelado);
   }
@@ -111,6 +124,15 @@ export const POST = comAuth<Ctx>("GERENTE", async (req, ctx, usuario) => {
           quantidade: contada,
         },
         update: { quantidade: contada },
+      });
+      await registrarAuditoria(tx, {
+        empresaId: usuario.empresaId,
+        usuarioId: usuario.id,
+        acao: "ESTOQUE_AJUSTE_INVENTARIO",
+        entidade: "Produto",
+        entidadeId: item.produtoId,
+        antes: { saldo: saldoAtual.toString(), depositoId: inventario.depositoId },
+        depois: { saldo: contada.toString(), inventarioId: inventario.id },
       });
       ajustados += 1;
     }

@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { usuarioAtual } from "@/lib/sessao";
 import { podePerfil } from "@/lib/auth/config";
 import { Importador } from "./importador";
@@ -5,6 +6,7 @@ import { Importador } from "./importador";
 export const dynamic = "force-dynamic";
 
 export default async function ImplantacaoPage() {
+  await exigirPerfilPagina("/configuracoes/implantacao");
   const u = await usuarioAtual();
   if (!podePerfil(u.perfil, "ADMIN")) {
     return (

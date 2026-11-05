@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
+import { registrarAuditoria } from "@/lib/auth/auditoria";
 
 // Transferência entre depósitos/lojas
 // -----------------------------------
@@ -102,6 +103,22 @@ export const POST = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
         documento,
         origemTipo: "TRANSFERENCIA",
         origemId: saida.id,
+        observacao: body.observacao,
+      },
+    });
+    await registrarAuditoria(tx, {
+      empresaId,
+      usuarioId: usuario.id,
+      acao: "ESTOQUE_TRANSFERENCIA",
+      entidade: "Produto",
+      entidadeId: produto.id,
+      antes: { origemSaldo: saldo ? saldo.quantidade.toString() : "0" },
+      depois: {
+        sku: produto.sku,
+        origem: origem.nome,
+        destino: destino.nome,
+        quantidade: qtd.toString(),
+        movimentos: [saida.id, entrada.id],
         observacao: body.observacao,
       },
     });

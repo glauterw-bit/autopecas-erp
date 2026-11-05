@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { FileCheck2, FileX2, FileEdit, ShieldCheck, Calculator, Download, Wrench, Truck, FileBarChart, Banknote } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
@@ -8,6 +9,7 @@ import { formatBRL, formatDateTime } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function FiscalPage() {
+  await exigirPerfilPagina("/fiscal");
   const empresaId = await empresaAtualId();
   const notas = await prisma.notaFiscal.findMany({
     where: { empresaId },

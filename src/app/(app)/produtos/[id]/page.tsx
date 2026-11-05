@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -16,6 +17,7 @@ const POSICAO: Record<string, string> = {
 };
 
 export default async function ProdutoPage({ params }: { params: Promise<{ id: string }> }) {
+  await exigirPerfilPagina("/produtos");
   const { id } = await params;
   const empresaId = await empresaAtualId();
   const p = await prisma.produto.findFirst({

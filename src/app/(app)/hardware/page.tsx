@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { Printer, CreditCard, Cpu, ScanLine, Receipt } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +46,8 @@ const dispositivos = [
   },
 ];
 
-export default function HardwarePage() {
+export default async function HardwarePage() {
+  await exigirPerfilPagina("/hardware");
   return (
     <div className="space-y-6">
       <div>

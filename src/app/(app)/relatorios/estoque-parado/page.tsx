@@ -1,3 +1,4 @@
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { Archive } from "lucide-react";
 import { empresaAtualId } from "@/lib/sessao";
@@ -14,6 +15,7 @@ const FAIXAS: FaixaParado[] = [90, 180, 365];
 const LIMITE = 300;
 
 export default async function EstoqueParadoPage({ searchParams }: { searchParams: Promise<{ faixa?: string }> }) {
+  await exigirPerfilPagina("/relatorios/estoque-parado");
   const sp = await searchParams;
   const faixa = (FAIXAS as number[]).includes(Number(sp.faixa)) ? (Number(sp.faixa) as FaixaParado) : 90;
   const empresaId = await empresaAtualId();
