@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import axios from "axios";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { ApiError } from "../auth/guard";
 import { CHAVE_IMPORTAR_DESDE, mesclarConfiguracoes } from "./config-conta";
 
 // OAuth do Mercado Livre (Authorization Code, server side)
@@ -30,8 +31,9 @@ export interface DadosState {
 }
 
 function segredo(env: NodeJS.ProcessEnv = process.env): string {
-  const s = env.ML_STATE_SECRET || env.NEXTAUTH_SECRET;
-  if (!s || s.length < 16) throw new Error("ML_STATE_SECRET (ou NEXTAUTH_SECRET) não configurado");
+  // Segredo próprio do state: não reaproveita o da sessão (NEXTAUTH_SECRET).
+  const s = env.ML_STATE_SECRET;
+  if (!s || s.length < 16) throw new ApiError(503, "Integração do Mercado Livre não configurada");
   return s;
 }
 

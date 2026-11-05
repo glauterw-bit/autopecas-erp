@@ -1246,6 +1246,13 @@ model NotaFiscal {
   // por esta nota — [{ itemVendaId, quantidade }]. Se a SEFAZ recusar, a reserva é devolvida.
   devolucaoItens    Json?
 
+  // Consulta à Focus (job): tentativas, última e próxima consulta; revisaoEm marca a
+  // nota que passou de 24 h sem resposta (alguém precisa olhar).
+  consultaTentativas Int       @default(0)
+  ultimaConsultaEm   DateTime?
+  proximaConsultaEm  DateTime?
+  revisaoEm          DateTime?
+
   xmlAutorizado   String? @db.Text
   xmlCancelamento String? @db.Text
   danfeUrl        String?
@@ -1256,6 +1263,7 @@ model NotaFiscal {
   @@unique([empresaId, modelo, serie, numero])
   @@index([refProvedor])
   @@index([status, dataEmissao])
+  @@index([status, proximaConsultaEm])
   @@map("notas_fiscais")
 }
 
@@ -1604,6 +1612,7 @@ enum TipoInsight {
   ANUNCIO_FRACO
   CADASTRO_DUPLICADO
   PRODUTO_OBSOLETO
+  NFE_PENDENTE
 }
 
 enum Severidade {

@@ -2,8 +2,8 @@ import axios from "axios";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { ApiError } from "../auth/guard";
-import { FOCUS_BASE } from "./config-focus";
-import { configFocusComToken } from "./emissor";
+import { FOCUS_BASE, configFocusDaNota } from "./config-focus";
+import { MSG_SEM_TOKEN_FOCUS } from "./emissor";
 
 // Situação da nota na Focus NFe (consulta)
 // ========================================
@@ -35,6 +35,8 @@ import { configFocusComToken } from "./emissor";
 
 /** Nota sem resposta da Focus há mais que isto e 404 na consulta = nunca chegou. */
 export const MINUTOS_PARA_DAR_COMO_NAO_RECEBIDA = 5;
+export const TIMEOUT_CONSULTA_MS = 8_000;
+export const TIMEOUT_XML_MS = 10_000;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RespostaFocus = Record<string, any>;
@@ -96,7 +98,7 @@ export function urlFocus(base: string, caminho: string | null): string | null {
 async function baixarXml(url: string | null, token: string): Promise<string | null> {
   if (!url) return null;
   try {
-    const r = await axios.get(url, { auth: { username: token, password: "" }, responseType: "text", validateStatus: () => true, timeout: 20_000 });
+    const r = await axios.get(url, { auth: { username: token, password: "" }, responseType: "text", validateStatus: () => true, timeout: TIMEOUT_XML_MS });
     return r.status === 200 && typeof r.data === "string" && r.data.includes("<") ? r.data : null;
   } catch {
     return null;
@@ -108,6 +110,8 @@ export interface ResultadoSincronizacao {
   status: string;
   mudou: boolean;
   mensagem: string | null;
+  /** 401/403 da Focus: o token desta empresa/ambiente é inválido. */
+  acessoNegado?: boolean;
 }
 
 /**
@@ -130,7 +134,14 @@ export async function sincronizarNota(
     return { notaId: nota.id, status: nota.status, mudou: false, mensagem: "Nota sem referência na Focus: confira com o suporte." };
   }
 
-  const cfg = configFocusComToken(nota.empresa);
+  // Sempre no ambiente gravado na nota (host e token desse ambiente).
+  const cfg = configFocusDaNota(nota.empresa, nota.ambiente);
+  if (!cfg.token.trim()) {
+    throw new ApiError(
+      422,
+      `${MSG_SEM_TOKEN_FOCUS} para o ambiente ${cfg.ambiente === "producao" ? "de produção" : "de homologação"} (nota ${nota.ambiente}).`,
+    );
+  }
   const base = FOCUS_BASE[cfg.ambiente];
   const tipo = nota.modelo === "NFCE_65" ? "nfce" : "nfe";
   let http = 0;
@@ -139,7 +150,7 @@ export async function sincronizarNota(
     const r = await axios.get(`${base}/v2/${tipo}/${encodeURIComponent(nota.refProvedor)}?completa=1`, {
       auth: { username: cfg.token, password: "" },
       validateStatus: () => true,
-      timeout: 20_000,
+      timeout: TIMEOUT_CONSULTA_MS,
     });
     http = r.status;
     data = (r.data ?? {}) as RespostaFocus;
@@ -159,7 +170,7 @@ export async function sincronizarNota(
     return { notaId: nota.id, status: nota.status, mudou: false, mensagem: "A SEFAZ ainda está processando a nota." };
   }
   if (res.tipo === "falha") {
-    return { notaId: nota.id, status: nota.status, mudou: false, mensagem: res.mensagem };
+    return { notaId: nota.id, status: nota.status, mudou: false, mensagem: res.mensagem, ...(http === 401 || http === 403 ? { acessoNegado: true } : {}) };
   }
 
   if (res.tipo === "autorizada") {
@@ -283,26 +294,140 @@ async function desfazerEfeitosDaNota(
   });
 }
 
-/** Rodada do job: notas EMITINDO há mais de `idadeMinMs`, mais antigas primeiro, com limite. */
-export async function sincronizarPendentes(opts: { limite?: number; idadeMinMs?: number; agora?: Date } = {}) {
+// ---------------------------------------------------------------------------
+// Agenda de consultas do job
+// ---------------------------------------------------------------------------
+// Depois da 1ª, 2ª, 3ª e 4ª consulta sem resposta final: espera 1, 5, 15 e 60
+// minutos; depois, de hora em hora. Passadas 24 h da emissão, para: a nota vai
+// para revisão humana (a SEFAZ pode ter a nota; só uma pessoa decide).
+const ESPERA_MINUTOS = [1, 5, 15, 60];
+const ESPERA_DEPOIS_MINUTOS = 60;
+export const HORAS_ATE_REVISAO = 24;
+export const LIMITE_POR_EMPRESA_POR_RODADA = 20;
+
+export type AgendaConsulta = { tipo: "agendar"; proximaEm: Date } | { tipo: "revisao" };
+
+/** `tentativas` já inclui a consulta que acabou de acontecer (>= 1). Pura, testada. */
+export function proximaConsulta(tentativas: number, dataEmissao: Date, agora: Date): AgendaConsulta {
+  if (agora.getTime() - dataEmissao.getTime() >= HORAS_ATE_REVISAO * 3_600_000) return { tipo: "revisao" };
+  const minutos = ESPERA_MINUTOS[tentativas - 1] ?? ESPERA_DEPOIS_MINUTOS;
+  return { tipo: "agendar", proximaEm: new Date(agora.getTime() + minutos * 60_000) };
+}
+
+async function alertarNfe(opts: {
+  empresaId: string;
+  titulo: string;
+  descricao: string;
+  acaoSugerida: string;
+  referencia: Prisma.InputJsonObject;
+  chaves: string[]; // campos de `referencia` que identificam o alerta (idempotência)
+}) {
+  const aberto = await prisma.insightIA.findFirst({
+    where: {
+      empresaId: opts.empresaId,
+      tipo: "NFE_PENDENTE",
+      resolvidoEm: null,
+      AND: opts.chaves.map((k) => ({ dadosReferencia: { path: [k], equals: opts.referencia[k] as Prisma.InputJsonValue } })),
+    },
+    select: { id: true },
+  });
+  if (aberto) return;
+  await prisma.insightIA.create({
+    data: {
+      empresaId: opts.empresaId,
+      tipo: "NFE_PENDENTE",
+      severidade: "CRITICO",
+      titulo: opts.titulo,
+      descricao: opts.descricao,
+      acaoSugerida: opts.acaoSugerida,
+      dadosReferencia: opts.referencia,
+    },
+  });
+}
+
+/**
+ * Rodada do job: só notas EMITINDO com a próxima consulta vencida (ou nunca
+ * consultadas), com teto por empresa. Nota travada vai para o futuro e não
+ * ocupa a vez das novas. Em 401/403 para a empresa/ambiente na hora e alerta.
+ */
+export async function sincronizarPendentes(
+  opts: { limite?: number; idadeMinMs?: number; agora?: Date; porEmpresa?: number } = {},
+) {
   const agora = opts.agora ?? new Date();
-  const pendentes = await prisma.notaFiscal.findMany({
+  const limite = opts.limite ?? 50;
+  const porEmpresa = opts.porEmpresa ?? LIMITE_POR_EMPRESA_POR_RODADA;
+  const candidatas = await prisma.notaFiscal.findMany({
     where: {
       status: "EMITINDO",
       modelo: { in: ["NFE_55", "NFCE_65"] },
       refProvedor: { not: null },
+      revisaoEm: null,
       dataEmissao: { lt: new Date(agora.getTime() - (opts.idadeMinMs ?? 60_000)) },
+      OR: [{ proximaConsultaEm: null }, { proximaConsultaEm: { lte: agora } }],
     },
-    orderBy: { dataEmissao: "asc" },
-    take: opts.limite ?? 50,
-    select: { id: true },
+    orderBy: [{ proximaConsultaEm: { sort: "asc", nulls: "first" } }, { dataEmissao: "asc" }],
+    take: limite * 5,
+    select: { id: true, empresaId: true, ambiente: true, dataEmissao: true, consultaTentativas: true },
   });
+  const contagem = new Map<string, number>();
+  const pendentes = candidatas
+    .filter((n) => {
+      const c = contagem.get(n.empresaId) ?? 0;
+      if (c >= porEmpresa) return false;
+      contagem.set(n.empresaId, c + 1);
+      return true;
+    })
+    .slice(0, limite);
+
   const resultados: Array<ResultadoSincronizacao | { notaId: string; erro: string }> = [];
+  const bloqueados = new Set<string>(); // empresa|ambiente com token recusado nesta rodada
   for (const n of pendentes) {
+    const chaveBloqueio = `${n.empresaId}|${n.ambiente}`;
+    if (bloqueados.has(chaveBloqueio)) continue;
+    let situacao: string | null = null;
+    let acessoNegado = false;
     try {
-      resultados.push(await sincronizarNota(n.id, { agora }));
+      const r = await sincronizarNota(n.id, { agora });
+      resultados.push(r);
+      situacao = r.status;
+      acessoNegado = !!r.acessoNegado;
     } catch (e) {
       resultados.push({ notaId: n.id, erro: (e as Error).message });
+      situacao = "EMITINDO";
+    }
+    if (situacao !== "EMITINDO") continue; // resolvida (ou fora do alcance): nada a agendar
+
+    const tentativas = n.consultaTentativas + 1;
+    const agenda = acessoNegado
+      ? ({ tipo: "agendar", proximaEm: new Date(agora.getTime() + ESPERA_DEPOIS_MINUTOS * 60_000) } as const)
+      : proximaConsulta(tentativas, n.dataEmissao, agora);
+    await prisma.notaFiscal.updateMany({
+      where: { id: n.id, status: "EMITINDO" },
+      data: {
+        consultaTentativas: tentativas,
+        ultimaConsultaEm: agora,
+        ...(agenda.tipo === "agendar" ? { proximaConsultaEm: agenda.proximaEm } : { proximaConsultaEm: null, revisaoEm: agora }),
+      },
+    });
+    if (acessoNegado) {
+      bloqueados.add(chaveBloqueio);
+      await alertarNfe({
+        empresaId: n.empresaId,
+        titulo: "A Focus NFe recusou o acesso (token inválido)",
+        descricao: `A consulta das notas em ${n.ambiente === "PRODUCAO" ? "produção" : "homologação"} foi negada (acesso recusado). As consultas dessa empresa neste ambiente ficam em espera até o token ser corrigido.`,
+        acaoSugerida: "Conferir o token da Focus NFe desta empresa nas configurações do servidor.",
+        referencia: { motivo: "TOKEN_FOCUS", ambiente: n.ambiente },
+        chaves: ["motivo", "ambiente"],
+      });
+    } else if (agenda.tipo === "revisao") {
+      await alertarNfe({
+        empresaId: n.empresaId,
+        titulo: "Nota fiscal sem resposta há mais de 24 horas",
+        descricao: `A nota ${n.id} continua em "emitindo" depois de ${HORAS_ATE_REVISAO} horas e ${tentativas} consultas. O sistema parou de consultar.`,
+        acaoSugerida: "Conferir a nota no painel da Focus NFe e na SEFAZ; se necessário, emitir de novo. Use 'Atualizar situação' na nota para consultar uma vez mais.",
+        referencia: { motivo: "NOTA_SEM_RESPOSTA", notaId: n.id },
+        chaves: ["motivo", "notaId"],
+      });
     }
   }
   return resultados;

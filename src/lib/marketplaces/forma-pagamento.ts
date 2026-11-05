@@ -23,6 +23,20 @@ export function formaPagamentoDoMarketplace(tipo?: string | null, metodo?: strin
   return "TRANSFERENCIA";
 }
 
+/**
+ * Vallente Hub: manda um texto só (`paymentMethod`), que pode ser o tipo
+ * (credit_card, debit_card, ticket...) ou o método (pix, visa, bolbradesco...).
+ * Vazio ou desconhecido continua PIX, como o endpoint sempre fez; só vira
+ * TRANSFERENCIA quando o texto diz isso (bank_transfer, account_money).
+ */
+export function formaPagamentoVallente(paymentMethod?: string | null): FormaPagamento {
+  const v = (paymentMethod ?? "").toLowerCase().trim();
+  if (!v) return "PIX";
+  const forma = formaPagamentoDoMarketplace(v, v);
+  if (forma === "TRANSFERENCIA" && v !== "bank_transfer" && v !== "account_money") return "PIX";
+  return forma;
+}
+
 export interface PagamentoMLRaw {
   status?: string;
   payment_type?: string;

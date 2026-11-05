@@ -16,6 +16,7 @@ const db = vi.hoisted(() => {
     tx,
     prisma: {
       notaFiscal: { findFirst: vi.fn(), updateMany: tx.notaFiscal.updateMany, findMany: vi.fn() },
+      insightIA: { findFirst: vi.fn(), create: vi.fn() },
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
     },
   };
@@ -24,7 +25,7 @@ vi.mock("../db", () => ({ prisma: db.prisma }));
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock("axios", () => ({ default: http }));
 
-import { interpretarConsulta, sincronizarNota, sincronizarPendentes } from "./sincronizar";
+import { interpretarConsulta, proximaConsulta, sincronizarNota, sincronizarPendentes } from "./sincronizar";
 
 const AGORA = new Date("2026-11-04T15:00:00Z");
 const CHAVE = "35261112345678000195550010000001231000001234";
@@ -173,22 +174,138 @@ describe("sincronizarNota", () => {
   });
 });
 
+describe("ambiente da nota na consulta", () => {
+  it("nota HOMOLOGACAO com a empresa já em produção é consultada na homologação, com o token da homologação", async () => {
+    process.env.FOCUS_NFE_AMBIENTE = "producao";
+    process.env.FOCUS_NFE_TOKEN = "token-producao";
+    process.env.FOCUS_NFE_TOKEN_HOMOLOGACAO = "token-homolog";
+    db.prisma.notaFiscal.findFirst.mockResolvedValue({
+      ...NOTA_VENDA,
+      ambiente: "HOMOLOGACAO",
+      empresa: { cnpj: "12345678000195", configuracoes: { fiscal: { focus: { ambiente: "producao" } } } },
+    });
+    http.get.mockResolvedValue({ status: 200, data: { status: "processando_autorizacao" } });
+    await sincronizarNota("nf1");
+    expect(http.get.mock.calls[0][0]).toContain("https://homologacao.focusnfe.com.br/v2/nfe/");
+    expect(http.get.mock.calls[0][1].auth.username).toBe("token-homolog");
+    delete process.env.FOCUS_NFE_TOKEN_HOMOLOGACAO;
+  });
+
+  it("nota PRODUCAO consulta o host de produção mesmo com a empresa em homologação", async () => {
+    process.env.FOCUS_NFE_TOKEN_PRODUCAO = "token-prod";
+    db.prisma.notaFiscal.findFirst.mockResolvedValue({ ...NOTA_VENDA, ambiente: "PRODUCAO" });
+    http.get.mockResolvedValue({ status: 200, data: { status: "processando_autorizacao" } });
+    await sincronizarNota("nf1");
+    expect(http.get.mock.calls[0][0]).toContain("https://api.focusnfe.com.br/v2/nfe/");
+    expect(http.get.mock.calls[0][1].auth.username).toBe("token-prod");
+    delete process.env.FOCUS_NFE_TOKEN_PRODUCAO;
+  });
+
+  it("sem token do ambiente da nota (e ambiente diferente do atual): não consulta com o token errado", async () => {
+    process.env.FOCUS_NFE_AMBIENTE = "producao";
+    db.prisma.notaFiscal.findFirst.mockResolvedValue({
+      ...NOTA_VENDA,
+      ambiente: "HOMOLOGACAO",
+      empresa: { cnpj: "12345678000195", configuracoes: { fiscal: { focus: { ambiente: "producao" } } } },
+    });
+    await expect(sincronizarNota("nf1")).rejects.toMatchObject({ status: 422 });
+    expect(http.get).not.toHaveBeenCalled();
+  });
+});
+
+describe("proximaConsulta (agenda)", () => {
+  const emissao = new Date("2026-11-04T10:00:00Z");
+  const em = (min: number) => new Date(emissao.getTime() + min * 60_000);
+  it("espaça 1, 5, 15 e 60 min e depois de hora em hora", () => {
+    const agora = em(2);
+    const minutos = [1, 2, 3, 4, 5, 9].map((t) => {
+      const a = proximaConsulta(t, emissao, agora);
+      return a.tipo === "agendar" ? (a.proximaEm.getTime() - agora.getTime()) / 60_000 : -1;
+    });
+    expect(minutos).toEqual([1, 5, 15, 60, 60, 60]);
+  });
+  it("depois de 24 h para e manda para revisão; antes disso ainda agenda", () => {
+    expect(proximaConsulta(30, emissao, em(24 * 60 - 1)).tipo).toBe("agendar");
+    expect(proximaConsulta(30, emissao, em(24 * 60))).toEqual({ tipo: "revisao" });
+  });
+});
+
 describe("sincronizarPendentes (job)", () => {
-  it("busca só EMITINDO com mais de 1 minuto, mais antigas primeiro, com limite", async () => {
-    db.prisma.notaFiscal.findMany.mockResolvedValue([{ id: "nf1" }]);
+  const dados = (id: string, over = {}) => ({ id, empresaId: "A", ambiente: "HOMOLOGACAO", dataEmissao: new Date("2026-11-04T14:00:00Z"), consultaTentativas: 0, ...over });
+  beforeEach(() => {
+    db.prisma.insightIA.findFirst.mockResolvedValue(null);
+    db.prisma.notaFiscal.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("seleciona só EMITINDO com consulta vencida (ou nunca consultada), fora de revisão", async () => {
+    db.prisma.notaFiscal.findMany.mockResolvedValue([dados("nf1")]);
+    db.prisma.notaFiscal.findFirst.mockResolvedValue(NOTA_VENDA);
     http.get.mockResolvedValue({ status: 200, data: { status: "processando_autorizacao" } });
     const r = await sincronizarPendentes({ limite: 10, agora: AGORA });
     expect(r).toHaveLength(1);
-    expect(db.prisma.notaFiscal.findMany).toHaveBeenCalledWith({
-      where: {
-        status: "EMITINDO",
-        modelo: { in: ["NFE_55", "NFCE_65"] },
-        refProvedor: { not: null },
-        dataEmissao: { lt: new Date("2026-11-04T14:59:00Z") },
-      },
-      orderBy: { dataEmissao: "asc" },
-      take: 10,
-      select: { id: true },
+    const arg = db.prisma.notaFiscal.findMany.mock.calls[0][0];
+    expect(arg.where).toMatchObject({
+      status: "EMITINDO",
+      revisaoEm: null,
+      dataEmissao: { lt: new Date("2026-11-04T14:59:00Z") },
+      OR: [{ proximaConsultaEm: null }, { proximaConsultaEm: { lte: AGORA } }],
     });
+    expect(arg.take).toBe(50);
+  });
+
+  it("depois de consultar, grava tentativa, última e próxima consulta (1ª tentativa: +1 min)", async () => {
+    db.prisma.notaFiscal.findMany.mockResolvedValue([dados("nf1")]);
+    db.prisma.notaFiscal.findFirst.mockResolvedValue(NOTA_VENDA);
+    http.get.mockResolvedValue({ status: 200, data: { status: "processando_autorizacao" } });
+    await sincronizarPendentes({ agora: AGORA });
+    expect(db.prisma.notaFiscal.updateMany).toHaveBeenCalledWith({
+      where: { id: "nf1", status: "EMITINDO" },
+      data: { consultaTentativas: 1, ultimaConsultaEm: AGORA, proximaConsultaEm: new Date("2026-11-04T15:01:00Z") },
+    });
+  });
+
+  it("teto por empresa: 25 notas da empresa A não impedem a nota da B", async () => {
+    const lista = [...Array.from({ length: 25 }, (_, i) => dados(`a${i}`)), dados("b1", { empresaId: "B" })];
+    db.prisma.notaFiscal.findMany.mockResolvedValue(lista);
+    db.prisma.notaFiscal.findFirst.mockResolvedValue(NOTA_VENDA);
+    http.get.mockResolvedValue({ status: 200, data: { status: "processando_autorizacao" } });
+    const r = await sincronizarPendentes({ agora: AGORA, porEmpresa: 20 });
+    expect(r).toHaveLength(21);
+    expect(db.prisma.notaFiscal.updateMany.mock.calls.some((c) => c[0].where.id === "b1")).toBe(true);
+    expect(db.prisma.notaFiscal.updateMany.mock.calls.some((c) => c[0].where.id === "a20")).toBe(false);
+  });
+
+  it("passou de 24 h: marca revisão, para de agendar e cria alerta", async () => {
+    db.prisma.notaFiscal.findMany.mockResolvedValue([dados("nf1", { dataEmissao: new Date("2026-11-03T14:00:00Z"), consultaTentativas: 30 })]);
+    db.prisma.notaFiscal.findFirst.mockResolvedValue({ ...NOTA_VENDA, dataEmissao: new Date("2026-11-03T14:00:00Z") });
+    http.get.mockResolvedValue({ status: 200, data: { status: "processando_autorizacao" } });
+    await sincronizarPendentes({ agora: AGORA });
+    expect(db.prisma.notaFiscal.updateMany).toHaveBeenCalledWith({
+      where: { id: "nf1", status: "EMITINDO" },
+      data: { consultaTentativas: 31, ultimaConsultaEm: AGORA, proximaConsultaEm: null, revisaoEm: AGORA },
+    });
+    expect(db.prisma.insightIA.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ empresaId: "A", tipo: "NFE_PENDENTE", severidade: "CRITICO" }) }),
+    );
+  });
+
+  it("401 da Focus: alerta na hora e não consulta mais notas da mesma empresa/ambiente na rodada", async () => {
+    db.prisma.notaFiscal.findMany.mockResolvedValue([dados("nf1"), dados("nf2")]);
+    db.prisma.notaFiscal.findFirst.mockResolvedValue(NOTA_VENDA);
+    http.get.mockResolvedValue({ status: 401, data: {} });
+    const r = await sincronizarPendentes({ agora: AGORA });
+    expect(http.get).toHaveBeenCalledTimes(1);
+    expect(r).toHaveLength(1);
+    expect(db.prisma.insightIA.create).toHaveBeenCalledTimes(1);
+    expect(db.prisma.insightIA.create.mock.calls[0][0].data).toMatchObject({ tipo: "NFE_PENDENTE", dadosReferencia: { motivo: "TOKEN_FOCUS" } });
+  });
+
+  it("alerta já aberto não é repetido", async () => {
+    db.prisma.insightIA.findFirst.mockResolvedValue({ id: "i1" });
+    db.prisma.notaFiscal.findMany.mockResolvedValue([dados("nf1")]);
+    db.prisma.notaFiscal.findFirst.mockResolvedValue(NOTA_VENDA);
+    http.get.mockResolvedValue({ status: 403, data: {} });
+    await sincronizarPendentes({ agora: AGORA });
+    expect(db.prisma.insightIA.create).not.toHaveBeenCalled();
   });
 });

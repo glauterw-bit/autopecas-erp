@@ -19,3 +19,14 @@ describe("páginas internas", () => {
     expect(semGuarda.map((p) => path.relative(raiz, p))).toEqual(["sem-acesso/page.tsx"]);
   });
 });
+
+describe("PWA do vendedor (/m)", () => {
+  it("o layout exige perfil mínimo VENDEDOR, e o mapa de rotas diz o mesmo", async () => {
+    const fonte = readFileSync(path.join(process.cwd(), "src/app/m/layout.tsx"), "utf8");
+    expect(fonte).toContain('exigirPerfilPagina("/m", "VENDEDOR")');
+    const { perfilMinimoDaRota, podePerfil } = await import("./perfis");
+    expect(perfilMinimoDaRota("/m/scanner")).toBe("VENDEDOR");
+    expect(podePerfil("ESTOQUISTA", "VENDEDOR")).toBe(false);
+    expect(podePerfil("VENDEDOR", "VENDEDOR")).toBe(true);
+  });
+});

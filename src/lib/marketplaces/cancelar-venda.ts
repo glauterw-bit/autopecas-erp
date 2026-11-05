@@ -6,6 +6,8 @@ import { prisma as prismaPadrao } from "../db";
 // - Venda ainda sem nota autorizada: vira CANCELADA, o estoque volta pelo
 //   kardex (ENTRADA, origem CANCELAMENTO_VENDA), as contas a receber abertas
 //   são canceladas e tudo vai para o LogAuditoria com antes e depois.
+//   Conta a receber PARCIALMENTE PAGA não é cancelada: já entrou dinheiro, e o
+//   estorno dele é decisão humana. Fica marcada para revisão, com alerta.
 // - Venda com nota autorizada (ou faturada): NÃO mexe na nota nem no estoque.
 //   Marca o pedido para revisão humana e abre alerta. Cancelar nota tem prazo
 //   e regra fiscal; quem decide é a pessoa.
@@ -15,7 +17,7 @@ import { prisma as prismaPadrao } from "../db";
 export type ResultadoCancelamento =
   | { status: "SEM_VENDA" }
   | { status: "JA_CANCELADA"; vendaId: string }
-  | { status: "CANCELADA"; vendaId: string; itensDevolvidos: number; contasCanceladas: number }
+  | { status: "CANCELADA"; vendaId: string; itensDevolvidos: number; contasCanceladas: number; contasParaRevisao: number }
   | { status: "REVISAO_HUMANA"; vendaId: string; motivo: string };
 
 // O enum de status do pedido não tem "revisão"; a marca fica na observação (sem migração).
@@ -116,9 +118,35 @@ export async function cancelarVendaMarketplace(
     }
 
     const contas = await tx.contaReceber.updateMany({
-      where: { empresaId, vendaId: venda.id, status: { in: ["ABERTO", "ATRASADO", "PARCIALMENTE_PAGO"] } },
+      where: { empresaId, vendaId: venda.id, status: { in: ["ABERTO", "ATRASADO"] } },
       data: { status: "CANCELADO" },
     });
+    // Parcialmente paga: não cancela; marca para revisão e alerta (uma vez, pois a
+    // troca de status da venda acima só é vencida por uma chamada).
+    const parciais = await tx.contaReceber.findMany({
+      where: { empresaId, vendaId: venda.id, status: "PARCIALMENTE_PAGO" },
+      select: { id: true, valor: true, valorRecebido: true, observacoes: true },
+    });
+    if (parciais.length) {
+      const aviso = `${MARCA_REVISAO} pedido ${pedidoIdExterno} cancelado no marketplace com parte já recebida; decidir o estorno.`;
+      for (const c of parciais) {
+        await tx.contaReceber.update({
+          where: { id: c.id },
+          data: { observacoes: [c.observacoes, aviso].filter(Boolean).join(" | ").slice(0, 500) },
+        });
+      }
+      await tx.insightIA.create({
+        data: {
+          empresaId,
+          tipo: "CADASTRO_DUPLICADO",
+          severidade: "CRITICO",
+          titulo: `Pedido cancelado com pagamento parcial já recebido (venda #${venda.numero})`,
+          descricao: `O pedido ${pedidoIdExterno} foi cancelado no marketplace, mas ${parciais.length} conta(s) a receber da venda #${venda.numero} já tinha(m) valor recebido. O sistema devolveu o estoque, mas NÃO cancelou essa(s) conta(s) nem estornou o que já entrou.`,
+          acaoSugerida: "Conferir o que já foi recebido e decidir o estorno ou a devolução ao cliente; depois dar baixa ou cancelar a conta a receber.",
+          dadosReferencia: { contaId, pedidoIdExterno, vendaId: venda.id, contasReceberIds: parciais.map((c) => c.id) } as Prisma.InputJsonValue,
+        },
+      });
+    }
 
     await tx.marketplacePedido.updateMany({
       where: { contaId, pedidoIdExterno },
@@ -135,6 +163,7 @@ export async function cancelarVendaMarketplace(
           pedidoIdExterno,
           itensDevolvidosAoEstoque: saidas.length,
           contasReceberCanceladas: contas.count,
+          contasParcialmentePagasParaRevisao: parciais.map((c) => ({ id: c.id, valor: c.valor.toString(), valorRecebido: c.valorRecebido.toString() })),
         } as Prisma.InputJsonValue,
       },
     });
@@ -143,6 +172,7 @@ export async function cancelarVendaMarketplace(
       vendaId: venda.id,
       itensDevolvidos: saidas.length,
       contasCanceladas: contas.count,
+      contasParaRevisao: parciais.length,
     };
   });
 }

@@ -201,6 +201,51 @@ describe.skipIf(!URL)("devolução contra o banco", () => {
     await expect(rma.emitirNotaDevolucaoRMA(r.id, ids.A)).rejects.toMatchObject({ status: 422 });
   });
 
+  it("RMA pedindo com nota de balcão em voo: nunca recebe a nota do balcão", async () => {
+    const { venda, item } = await novaVenda(2);
+    const balcao = await devolucao.emitirNotaDevolucao({ empresaId: ids.A, vendaId: venda.id, itens: [{ itemVendaId: item.id, quantidade: 1 }] });
+    expect(balcao.status).toBe("EMITINDO");
+    const r = await db.solicitacaoRMA.create({
+      data: { empresaId: ids.A, numeroRMA: ++numeroVenda, vendaId: venda.id, itemVendaId: item.id, produtoId: ids.produto, motivo: "PECA_ERRADA", quantidade: 1, status: "RECEBIDA" },
+    });
+    const res = await rma.emitirNotaDevolucaoRMA(r.id, ids.A).catch((e) => e);
+    if ("id" in res) {
+      expect(res.id).not.toBe(balcao.id);
+      expect((await db.solicitacaoRMA.findUniqueOrThrow({ where: { id: r.id } })).notaDevolucaoId).toBe(res.id);
+      expect(await devolvidoNota(item.id)).toBe(2);
+    } else {
+      expect(res).toMatchObject({ status: expect.any(Number) });
+      expect((await db.solicitacaoRMA.findUniqueOrThrow({ where: { id: r.id } })).notaDevolucaoId).toBeNull();
+      expect(await devolvidoNota(item.id)).toBe(1);
+    }
+    // sem saldo (a venda toda reservada): outro RMA é recusado e a nota do balcão fica intacta
+    const r2 = await db.solicitacaoRMA.create({
+      data: { empresaId: ids.A, numeroRMA: ++numeroVenda, vendaId: venda.id, itemVendaId: item.id, produtoId: ids.produto, motivo: "PECA_ERRADA", quantidade: 1, status: "RECEBIDA" },
+    });
+    if ("id" in res) {
+      await expect(rma.emitirNotaDevolucaoRMA(r2.id, ids.A)).rejects.toMatchObject({ status: 422 });
+      expect((await db.solicitacaoRMA.findUniqueOrThrow({ where: { id: r2.id } })).notaDevolucaoId).toBeNull();
+    }
+  });
+
+  it("duas devoluções legítimas de 1 unidade (venda de 2): 1ª em voo com o mesmo pedido é clique duplo; depois de autorizada, a 2ª gera outra nota", async () => {
+    const { venda, item } = await novaVenda(2);
+    const pedido = { empresaId: ids.A, vendaId: venda.id, itens: [{ itemVendaId: item.id, quantidade: 1 }] };
+    const n1 = await devolucao.emitirNotaDevolucao(pedido);
+    // pedido idêntico enquanto a 1ª está em voo é indistinguível de clique duplo: mesma nota, estoque da nota reservado uma vez
+    expect((await devolucao.emitirNotaDevolucao(pedido)).id).toBe(n1.id);
+    expect(await devolvidoNota(item.id)).toBe(1);
+    await db.notaFiscal.update({ where: { id: n1.id }, data: { status: "AUTORIZADA" } });
+    const n2 = await devolucao.emitirNotaDevolucao(pedido);
+    expect(n2.id).not.toBe(n1.id);
+    expect(n2.refProvedor).not.toBe(n1.refProvedor);
+    expect(await devolvidoNota(item.id)).toBe(2);
+    expect(http.post).toHaveBeenCalledTimes(2);
+    await expect(
+      devolucao.emitirNotaDevolucao({ ...pedido, itens: [{ itemVendaId: item.id, quantidade: 2 }] }),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
   // ---------------- 6. balcão x RMA ----------------
   async function devolverBalcao(vendaId: string, itens: Array<{ itemVendaId: string; quantidade: number }>, motivo = "DESISTENCIA") {
     const { NextRequest } = await import("next/server");

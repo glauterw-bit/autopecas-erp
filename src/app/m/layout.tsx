@@ -1,8 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Home, Search, ScanLine, Users } from "lucide-react";
-import { usuarioDaSessao } from "@/lib/auth/config";
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 
 export const metadata: Metadata = {
   title: "AutoPeças — Vendedor",
@@ -23,10 +22,10 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
-// Sem sessão válida, vai para o login (como no restante do sistema).
+// Sem sessão válida, vai para o login; sem perfil VENDEDOR ou acima, para /sem-acesso
+// (perfil mínimo de "/m" no mapa de src/lib/auth/perfis.ts).
 export default async function MobileLayout({ children }: { children: React.ReactNode }) {
-  const usuario = await usuarioDaSessao();
-  if (!usuario || !usuario.ativo) redirect("/login");
+  await exigirPerfilPagina("/m", "VENDEDOR");
 
   return (
     <div className="flex h-[100dvh] flex-col bg-background">

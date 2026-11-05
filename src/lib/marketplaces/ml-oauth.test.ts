@@ -7,6 +7,18 @@ const env = {
   ML_REDIRECT_URI: "https://erp.exemplo.com.br/api/marketplaces/ml/callback",
 } as unknown as NodeJS.ProcessEnv;
 
+describe("state do OAuth do ML: segredo obrigatório", () => {
+  it("sem ML_STATE_SECRET (mesmo com NEXTAUTH_SECRET) responde 503 e não assina nem verifica", () => {
+    const sem = { NEXTAUTH_SECRET: "um-segredo-de-sessao-bem-longo" } as unknown as NodeJS.ProcessEnv;
+    expect(() => assinarState({ empresaId: "e", usuarioId: "u" }, sem)).toThrowError(
+      expect.objectContaining({ status: 503, message: expect.stringContaining("não configurada") }),
+    );
+    expect(() => verificarState("a.b", Date.now(), sem)).toThrowError(expect.objectContaining({ status: 503 }));
+    const curto = { ML_STATE_SECRET: "curto" } as unknown as NodeJS.ProcessEnv;
+    expect(() => assinarState({ empresaId: "e", usuarioId: "u" }, curto)).toThrowError(expect.objectContaining({ status: 503 }));
+  });
+});
+
 describe("state do OAuth do ML", () => {
   it("ida e volta guarda empresa, usuário e nonce", () => {
     const { state, nonce } = assinarState({ empresaId: "emp1", usuarioId: "u1", agora: 1_000 }, env);

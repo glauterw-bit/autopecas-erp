@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { criarSessao, verificarSenha, verificarTotp } from "@/lib/auth/config";
+import { ipDoCliente } from "@/lib/auth/ip";
 import { permitidoAsync } from "@/lib/auth/rate-limit";
 import { respostaErro } from "@/lib/auth/guard";
 
@@ -19,7 +20,7 @@ const JANELA_MS = 15 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
   try {
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+    const ip = ipDoCliente(req);
     const body = schema.parse(await req.json());
     const email = body.email.trim().toLowerCase();
 

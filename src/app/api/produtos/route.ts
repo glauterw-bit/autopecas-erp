@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
+import { podePerfil } from "@/lib/auth/config";
+import { CAMPOS_FISCAIS_PRODUTO, PERFIL_FISCAL_PRODUTO } from "@/lib/produtos/campos-fiscais";
 import { eanValido, ncmValido } from "@/lib/crm/qualidade-cadastro";
 
 const vazioParaNull = (v: unknown) => (typeof v === "string" && v.trim() === "" ? null : v);
@@ -56,7 +58,28 @@ export const GET = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
 
 export const POST = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
-  const body = produtoSchema.parse(await req.json());
+  const bruto = await req.json();
+  const body = produtoSchema.parse(bruto);
+
+  // Dados fiscais mudam a nota: só FINANCEIRO ou acima, também na criação (igual ao PATCH).
+  // "Informado" = veio com valor; origem 0 é o padrão e não conta.
+  const informado = (k: string): boolean => {
+    const v = (bruto as Record<string, unknown> | null)?.[k];
+    if (v === undefined || v === null) return false;
+    if (typeof v === "string") return v.trim() !== "";
+    if (k === "origemFiscal") return v !== 0;
+    return true;
+  };
+  const fiscais = CAMPOS_FISCAIS_PRODUTO.filter(informado);
+  if (fiscais.length && !podePerfil(usuario.perfil, PERFIL_FISCAL_PRODUTO)) {
+    throw new ApiError(
+      403,
+      `Dados fiscais (${fiscais.join(", ")}) só podem ser preenchidos por quem cuida do fiscal (perfil Financeiro ou acima). ` +
+        `Cadastre o produto sem eles e peça a essa pessoa para completar.`,
+    );
+  }
+  // TODO (decisão do dono): hoje custoMedio e precoVenda podem ser definidos na criação por qualquer perfil
+  // que cadastra produto (ESTOQUISTA ou acima). Definir se isso exige perfil maior ou passa por LogAuditoria própria.
 
   if (body.codigoBarras && !eanValido(body.codigoBarras)) {
     throw new ApiError(422, "Código de barras (EAN) inválido: confira os números e o dígito final.");

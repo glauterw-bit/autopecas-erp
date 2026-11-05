@@ -220,25 +220,42 @@ export async function emitirNotaDevolucao(opts: {
     });
   }
 
-  // Clique duplo: se já existe devolução desta venda ainda EMITINDO com os
-  // mesmos itens e quantidades, devolve essa nota em vez de recusar por falta
-  // de saldo (a 1ª chamada já reservou). Só EMITINDO: depois de autorizada,
-  // um novo pedido com saldo restante é uma devolução nova e legítima.
-  const chavePedido = (xs: Array<{ itemVendaId: string; quantidade: number | string }>) =>
-    xs
-      .map((x) => `${x.itemVendaId}:${Math.round(Number(x.quantidade) * 1000)}`)
-      .sort()
-      .join("|");
+  // Clique duplo: só reaproveita uma nota EMITINDO se for do MESMO pedido.
+  // - Com rmaId: a nota já ligada a esse RMA.
+  // - Sem rmaId: nota sem RMA ligado cujo ref bate com o ref refeito a partir
+  //   do "já devolvido" de antes da reserva (já devolvido atual - pedido).
+  // Qualquer outra nota em voo (balcão x RMA, duas devoluções de 1 unidade)
+  // não é reaproveitada: segue o fluxo normal, com a validação de saldo.
   const emVoo = await prisma.notaFiscal.findMany({
     where: { empresaId: venda.empresaId, finalidade: 4, status: "EMITINDO", chaveReferenciada: original.chaveAcesso },
   });
-  const alvo = chavePedido(pedidos);
-  const mesma = emVoo.find(
-    (n) =>
-      Array.isArray(n.devolucaoItens) &&
-      chavePedido(n.devolucaoItens as Array<{ itemVendaId: string; quantidade: number }>) === alvo,
-  );
-  if (mesma) return mesma;
+  if (emVoo.length) {
+    if (opts.rmaId) {
+      const r = await prisma.solicitacaoRMA.findFirst({
+        where: { id: opts.rmaId, empresaId: opts.empresaId },
+        select: { notaDevolucaoId: true },
+      });
+      const mesma = emVoo.find((n) => n.id === r?.notaDevolucaoId);
+      if (mesma) return mesma;
+    } else {
+      const comRma = await prisma.solicitacaoRMA.findMany({
+        where: { empresaId: opts.empresaId, notaDevolucaoId: { in: emVoo.map((n) => n.id) } },
+        select: { notaDevolucaoId: true },
+      });
+      const ligadas = new Set(comRma.map((x) => x.notaDevolucaoId));
+      const refAntes = refDevolucao({
+        empresaId: venda.empresaId,
+        vendaId: venda.id,
+        itens: selecionados.map((x) => ({
+          itemVendaId: x.original.itemVendaId,
+          quantidade: x.quantidade,
+          jaDevolvidoAntes: Number(x.original.quantidadeJaDevolvida) - x.quantidade,
+        })),
+      });
+      const mesma = emVoo.find((n) => !ligadas.has(n.id) && n.refProvedor === refAntes);
+      if (mesma) return mesma;
+    }
+  }
 
   const { itens, erros } = montarItensDevolucao({
     chaveOriginal: original.chaveAcesso,

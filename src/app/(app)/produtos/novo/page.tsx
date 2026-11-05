@@ -43,7 +43,7 @@ export default async function NovoProdutoPage() {
           depois, na ficha do produto.
         </p>
       </div>
-      <FormNovoProduto marcas={marcas} categorias={categorias} />
+      <FormNovoProduto marcas={marcas} categorias={categorias} podeFiscal={podePerfil(u.perfil, "FINANCEIRO")} />
     </div>
   );
 }

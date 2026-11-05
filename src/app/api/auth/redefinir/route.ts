@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { ApiError, respostaErro } from "@/lib/auth/guard";
 import { hashSenha } from "@/lib/auth/config";
+import { ipDoCliente } from "@/lib/auth/ip";
 import { permitidoAsync } from "@/lib/auth/rate-limit";
 import { consumirTokenConta } from "@/lib/auth/contas";
 import { validarSenhaNova } from "@/lib/auth/token";
@@ -14,7 +15,7 @@ const schema = z.object({ token: z.string().min(20).max(100), senha: z.string().
 
 export async function POST(req: NextRequest) {
   try {
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+    const ip = ipDoCliente(req);
     if (!(await permitidoAsync(`redefinir:ip:${ip}`, 20, 15 * 60 * 1000))) {
       return NextResponse.json({ erro: "Muitas tentativas. Aguarde." }, { status: 429 });
     }
