@@ -3,7 +3,7 @@ import { prisma } from "../db";
 
 // Lista de tarefas do começo de uso. Não bloqueia nada: só mostra o que falta.
 
-export const LINK_CONFIG_FISCAL = "/configuracoes"; // ajuste quando a tela fiscal ganhar rota própria
+export const LINK_CONFIG_FISCAL = "/configuracoes/fiscal";
 export const LINK_IMPLANTACAO = "/configuracoes/implantacao";
 export const LINK_EQUIPE = "/configuracoes/usuarios";
 

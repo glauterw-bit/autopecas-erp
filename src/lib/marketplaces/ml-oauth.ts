@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { ApiError } from "../auth/guard";
 import { CHAVE_IMPORTAR_DESDE, mesclarConfiguracoes } from "./config-conta";
+import { tokensParaGravar } from "./tokens";
 
 // OAuth do Mercado Livre (Authorization Code, server side)
 // ========================================================
@@ -121,8 +122,7 @@ export async function trocarCodePorToken(code: string, env: NodeJS.ProcessEnv = 
 export async function salvarContaML(empresaId: string, t: TokenML, agora = new Date()) {
   const contaExternaId = String(t.user_id);
   const dados = {
-    accessToken: t.access_token,
-    refreshToken: t.refresh_token,
+    ...tokensParaGravar({ accessToken: t.access_token, refreshToken: t.refresh_token }),
     expiraEm: new Date(agora.getTime() + Number(t.expires_in ?? 21600) * 1000),
     ativa: true,
   };

@@ -7,6 +7,7 @@ import type {
   MensagemRemota,
   PedidoRemoto,
 } from "./types";
+import { lerTokenConta, tokensParaGravar } from "./tokens";
 
 // Adaptador Mercado Livre
 // =======================
@@ -83,8 +84,9 @@ export class MercadoLivreAdapter implements AdaptadorMarketplace, ClienteML {
       select: { accessToken: true, expiraEm: true },
     });
     if (!forcar && conta.accessToken && conta.expiraEm && conta.expiraEm.getTime() - Date.now() > 5 * 60_000) {
-      this.tokenAtual = { valor: conta.accessToken, expiraEm: conta.expiraEm.getTime() };
-      return conta.accessToken;
+      const valor = lerTokenConta(conta.accessToken)!;
+      this.tokenAtual = { valor, expiraEm: conta.expiraEm.getTime() };
+      return valor;
     }
     const tokenVelho = conta.accessToken;
     try {
@@ -102,14 +104,14 @@ export class MercadoLivreAdapter implements AdaptadorMarketplace, ClienteML {
             atual.expiraEm &&
             atual.expiraEm.getTime() - Date.now() > 60_000
           ) {
-            return { valor: atual.accessToken, expiraEm: atual.expiraEm.getTime() };
+            return { valor: lerTokenConta(atual.accessToken)!, expiraEm: atual.expiraEm.getTime() };
           }
           if (!atual.refreshToken) {
             throw new ErroML("Conta do Mercado Livre sem autorização: reconecte a conta", 401, "sem_refresh");
           }
           const { data } = await comRetryML(
             () =>
-              axios.post(`${BASE}/oauth/token`, corpoRefreshML(atual.refreshToken!), {
+              axios.post(`${BASE}/oauth/token`, corpoRefreshML(lerTokenConta(atual.refreshToken)!), {
                 headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
                 timeout: 15_000,
               }),
@@ -119,8 +121,10 @@ export class MercadoLivreAdapter implements AdaptadorMarketplace, ClienteML {
           await tx.marketplaceConta.update({
             where: { id: this.contaId },
             data: {
-              accessToken: data.access_token,
-              refreshToken: data.refresh_token ?? atual.refreshToken,
+              ...tokensParaGravar({
+                accessToken: data.access_token as string,
+                refreshToken: (data.refresh_token as string | undefined) ?? atual.refreshToken,
+              }),
               expiraEm: new Date(expiraEm),
             },
           });

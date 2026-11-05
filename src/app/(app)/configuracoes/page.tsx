@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { maskCpfCnpj } from "@/lib/utils";
 import { VallenteCard } from "@/components/configuracoes/vallente-card";
+import { configFocus } from "@/lib/nfe/config-focus";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,9 @@ export default async function ConfiguracoesPage() {
 
   const integracoes = [
     { nome: "OpenAI (IA)", env: process.env.OPENAI_API_KEY, icon: Cpu },
-    { nome: "Emissor NF-e (Focus)", env: process.env.FOCUS_NFE_TOKEN, icon: FileText },
+    // Token por loja (Configurações > Fiscal), com o do env como reserva.
+    { nome: "Emissor NF-e (Focus)", env: empresa ? configFocus(empresa).token : undefined, icon: FileText },
+    { nome: "Chave de cifra dos segredos", env: process.env.APP_ENCRYPTION_KEY, icon: KeyRound },
     { nome: "Mercado Livre", env: process.env.ML_CLIENT_SECRET, icon: Store },
     { nome: "Shopee", env: process.env.SHOPEE_PARTNER_KEY, icon: Store },
     { nome: "WhatsApp Business", env: process.env.WHATSAPP_TOKEN, icon: Store },
@@ -50,6 +53,12 @@ export default async function ConfiguracoesPage() {
       <div className="flex flex-wrap gap-2 text-sm">
         <Link href="/configuracoes/usuarios" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
           Usuários e perfis
+        </Link>
+        <Link href="/configuracoes/fiscal" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
+          Configuração fiscal (nota)
+        </Link>
+        <Link href="/configuracoes/assinatura" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
+          Assinatura
         </Link>
         <Link href="/configuracoes/meus-dados" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
           Meus dados

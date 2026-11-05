@@ -31,6 +31,7 @@ import { ehSimples, type RegimeEmitente } from "./st-sp";
 export const CST_IBS_CBS_TRIBUTADO_INTEGRAL = "000";
 const CSTS_SEM_VALOR = new Set(["410"]); // imunidade e não incidência: só CST + cClassTrib
 const CSTS_SUPORTADOS = new Set([CST_IBS_CBS_TRIBUTADO_INTEGRAL, ...CSTS_SEM_VALOR]);
+export const CST_IBS_CBS_SUPORTADOS: ReadonlySet<string> = CSTS_SUPORTADOS;
 
 export interface ConfigIbsCbsEmpresa {
   cst?: string;

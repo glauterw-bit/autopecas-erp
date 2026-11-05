@@ -12,14 +12,14 @@ vi.mock("@/lib/operacao/saude", async (orig) => ({
 
 describe("validarEnvs", () => {
   it("aponta fatais, obrigatórias e opcionais só por nome", () => {
-    const r = validarEnvs({ SESSION_SECRET: "curto", WEBHOOK_TOKEN: "x", APP_URL: "https://a" });
+    const r = validarEnvs({ SESSION_SECRET: "curto", WEBHOOK_TOKEN: "x", APP_URL: "https://a", APP_ENCRYPTION_KEY: "k" });
     expect(r.fatais).toEqual(["DATABASE_URL"]);
     expect(r.obrigatorias).toEqual(["SESSION_SECRET"]); // menos de 32 caracteres
     expect(r.opcionais).toContain("SENTRY_DSN");
     expect(JSON.stringify(r)).not.toContain("curto");
   });
   it("tudo certo", () => {
-    const r = validarEnvs({ DATABASE_URL: "postgres://x", SESSION_SECRET: "s".repeat(32), WEBHOOK_TOKEN: "w", APP_URL: "https://a" });
+    const r = validarEnvs({ DATABASE_URL: "postgres://x", SESSION_SECRET: "s".repeat(32), WEBHOOK_TOKEN: "w", APP_URL: "https://a", APP_ENCRYPTION_KEY: "k" });
     expect(r.fatais).toEqual([]);
     expect(r.obrigatorias).toEqual([]);
   });

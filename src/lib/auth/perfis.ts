@@ -41,6 +41,7 @@ export const PERFIL_MINIMO_ROTAS: Record<string, string> = {
   "/ia": "VENDEDOR",
   "/relatorios": "GERENTE",
   "/configuracoes": "ADMIN",
+  "/configuracoes/fiscal": "FINANCEIRO",
   "/conta": "ESTOQUISTA",
   "/ajuda": "ESTOQUISTA",
   "/onboarding": "ADMIN",

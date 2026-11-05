@@ -9,6 +9,8 @@ export const ENVS_OBRIGATORIAS: Regra[] = [
   { nome: "SESSION_SECRET", minimo: 32 },
   { nome: "WEBHOOK_TOKEN" },
   { nome: "APP_URL" },
+  // Cifra tokens da Focus, CSC e tokens de marketplace (src/lib/cripto.ts). Sem ela não dá para salvar a configuração fiscal nem conectar marketplace.
+  { nome: "APP_ENCRYPTION_KEY" },
 ];
 // Recursos que ficam desligados sem elas. Avisa, não derruba.
 export const ENVS_OPCIONAIS: string[] = [
