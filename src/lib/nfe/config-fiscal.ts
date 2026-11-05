@@ -2,7 +2,7 @@ import { z } from "zod";
 import { cifrar, decifrarOpcional, ErroCripto, estaCifrado, mascarar } from "../cripto";
 import { CST_IBS_CBS_SUPORTADOS } from "../fiscal/ibs-cbs";
 import { ehSimples, type RegimeEmitente } from "../fiscal/st-sp";
-import { CSOSN_ACEITOS, CST_ACEITOS } from "./payload";
+import { CSOSN_ACEITOS, CST_ACEITOS, erroCstPadrao } from "./payload";
 import { configFiscalDaEmpresa } from "./config-focus";
 
 // Configuração fiscal da loja (Configurações > Fiscal)
@@ -175,6 +175,17 @@ export const esquemaConfigFiscal = z
         });
       }
     }
+    if (v.certificadoValidoAte && v.modo !== "token") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["certificadoValidoAte"],
+        message: "A validade digitada só vale quando a Focus já tem o certificado. Nos outros casos, envie o arquivo .pfx para o sistema ler a validade.",
+      });
+    }
+    if (v.cstIcmsPadrao) {
+      const restrito = erroCstPadrao(simples, v.cstIcmsPadrao);
+      if (restrito) ctx.addIssue({ code: "custom", path: ["cstIcmsPadrao"], message: restrito });
+    }
     if (v.cstIbsCbs && !CST_IBS_CBS_SUPORTADOS.has(v.cstIbsCbs)) {
       ctx.addIssue({
         code: "custom",
@@ -276,7 +287,7 @@ export function aplicarConfigFiscal(
     emailXml: v.emailXml || undefined,
   };
   // Validade digitada só vale quando não há leitura do arquivo ou da Focus.
-  if (v.certificadoValidoAte && (!atual.certificado || atual.certificado.origem === "informado")) {
+  if (v.certificadoValidoAte && v.modo === "token" && (!atual.certificado || atual.certificado.origem === "informado")) {
     fiscal.certificado = {
       validoAte: new Date(`${v.certificadoValidoAte}T23:59:59-03:00`).toISOString(),
       origem: "informado",

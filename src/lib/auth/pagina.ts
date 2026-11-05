@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { usuarioDaSessao } from "./config";
 import { perfilMinimoDaRota, podePerfil } from "./perfis";
 import { acessoDaEmpresa } from "../assinatura/politica";
-import { moduloDaPagina, moduloLiberado } from "../assinatura/estado";
+import { paginaLiberadaNaSuspensao, moduloDaPagina, moduloLiberado } from "../assinatura/estado";
 
 /**
  * Guarda de página (servidor). Chame no começo de cada page.tsx restrita,
@@ -24,7 +24,8 @@ export async function exigirPerfilPagina(rota: string, perfilMinimo?: string) {
     console.error("[assinatura] falha ao ler a assinatura na página; liberando", (e as Error).message);
   }
   if (acesso) {
-    if (acesso.modo === "SUSPENSO" && !rota.startsWith("/configuracoes/assinatura")) {
+    // Suspensa: só assinatura, meus dados (exportar) e ajuda.
+    if (acesso.modo === "SUSPENSO" && !paginaLiberadaNaSuspensao(rota)) {
       redirect("/configuracoes/assinatura");
     }
     const modulo = moduloDaPagina(rota);

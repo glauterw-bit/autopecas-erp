@@ -1,4 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { createWriteStream, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { inflateRawSync } from "node:zlib";
 import { crc32, gerarZip } from "./zip";
 import { celulaCsv, linhasParaCsv } from "./csv";
@@ -52,4 +58,53 @@ describe("csv da exportação", () => {
     expect(csv).toContain("id;nome");
     expect(csv).not.toContain("hash");
   });
+});
+
+// ZIP64: valida com o `unzip -t` do sistema (se não houver unzip, o teste é pulado).
+function temUnzip(): boolean {
+  try { execFileSync("unzip", ["-v"], { stdio: "ignore" }); return true; } catch { return false; }
+}
+
+async function gravarETestar(entradas: Iterable<{ nome: string; conteudo: never } | { nome: string; conteudo: string | AsyncIterable<string> }>, opcoes = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "zip64-"));
+  try {
+    const arq = join(dir, "t.zip");
+    await pipeline(Readable.from(gerarZip(entradas as never, opcoes)), createWriteStream(arq));
+    return execFileSync("unzip", ["-t", arq], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function* csvEmPartes(n: number) {
+  yield "a;b\r\n";
+  for (let i = 0; i < n; i++) yield `${i};linha ${i}\r\n`;
+}
+
+describe.skipIf(!temUnzip())("zip64 e fluxo, conferidos pelo unzip -t", () => {
+  it("entrada em fluxo (CSV por lotes) e entrada comum passam no unzip -t", async () => {
+    const saida = await gravarETestar([
+      { nome: "grande.csv", conteudo: csvEmPartes(50_000) as never },
+      { nome: "pequeno.txt", conteudo: "olá" },
+    ]);
+    expect(saida).toContain("No errors detected");
+    expect(saida).toContain("OK");
+  });
+
+  it("estruturas ZIP64 forçadas (registro de fim, localizador e extras) passam no unzip -t", async () => {
+    const saida = await gravarETestar(
+      [{ nome: "a.txt", conteudo: "A" }, { nome: "b.csv", conteudo: csvEmPartes(10) as never }],
+      { forcarZip64: true },
+    );
+    expect(saida).toContain("No errors detected");
+  });
+
+  it("70.000 arquivos pequenos (acima de 65.535 entradas) passam no unzip -t", async () => {
+    function* muitos() {
+      for (let i = 0; i < 70_000; i++) yield { nome: `xml/n${i}.xml`, conteudo: `<n>${i}</n>` };
+    }
+    const saida = await gravarETestar(muitos());
+    expect(saida).toContain("No errors detected");
+    expect(saida).toContain("xml/n69999.xml");
+  }, 300_000);
 });

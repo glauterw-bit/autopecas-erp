@@ -106,8 +106,9 @@ export async function anonimizarCliente(db: Db, empresaId: string, clienteId: st
       acao: "LGPD_ANONIMIZAR_CLIENTE",
       entidade: "Cliente",
       entidadeId: clienteId,
-      antes: { nome: c.nome, cpfCnpj: c.cpfCnpj, email: !!c.email, telefone: !!c.telefone },
-      depois: { nome: NOME_ANONIMIZADO, cpfCnpj: null, email: null, telefone: null },
+      // Só o id: o log não pode guardar de novo o dado que a pessoa pediu para apagar.
+      antes: { clienteId, tinhaCpfCnpj: !!c.cpfCnpj, tinhaEmail: !!c.email, tinhaTelefone: !!c.telefone },
+      depois: { anonimizado: true },
     });
     return { jaAnonimizado: false as const };
   });

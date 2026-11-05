@@ -1,16 +1,16 @@
 import { notFound, redirect } from "next/navigation";
 import { usuarioDaSessao } from "@/lib/auth/config";
-import { ehAdminSaas, listarLojas } from "@/lib/assinatura/admin-saas";
+import { listarLojas, negarAdminSaas } from "@/lib/assinatura/admin-saas";
 import { prisma } from "@/lib/db";
 import { PainelClient } from "./painel-client";
 
 export const dynamic = "force-dynamic";
 
-// Painel do dono do SaaS. Acesso só pelos e-mails da env SAAS_ADMIN_EMAILS.
+// Painel do dono do SaaS. Acesso só por id de usuário (SAAS_ADMIN_USER_IDS) com 2FA ligado.
 export default async function AdminSaasPage() {
   const u = await usuarioDaSessao();
   if (!u || !u.ativo) redirect("/login");
-  if (!ehAdminSaas(u.email)) notFound();
+  if (await negarAdminSaas({ id: u.id })) notFound();
   const [{ lojas, mrrCentavos }, planos] = await Promise.all([
     listarLojas(),
     prisma.plano.findMany({ where: { ativo: true }, select: { codigo: true, nome: true }, orderBy: { codigo: "asc" } }),

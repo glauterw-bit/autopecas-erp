@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   avaliarNotas, calcularAcesso, checarLimiteSimples, checarLimiteUsuarios, decidirRota, DIA_MS,
-  moduloDaPagina, moduloDaRotaApi, moduloLiberado, prazosInadimplencia, suspensaoMinDias, type AssinaturaBasica, type LimitesPlano,
+  paginaLiberadaNaSuspensao, moduloDaPagina, moduloDaRotaApi, moduloLiberado, prazosInadimplencia, suspensaoMinDias, type AssinaturaBasica, type LimitesPlano,
 } from "./estado";
-import { calcularMrrCentavos, checarSuspensao, ehAdminSaas } from "./admin-saas";
+import { calcularMrrCentavos, checarSuspensao, idsAdminSaas, negarAdminSaas } from "./admin-saas";
 
 const AGORA = new Date("2026-11-30T12:00:00Z");
 const diasAtras = (n: number) => new Date(AGORA.getTime() - n * DIA_MS);
@@ -139,11 +139,32 @@ describe("limites do plano", () => {
 });
 
 describe("painel do dono do SaaS", () => {
-  it("só os e-mails da env entram", () => {
-    const env = { SAAS_ADMIN_EMAILS: "Dono@Exemplo.com, outro@x.com" };
-    expect(ehAdminSaas("dono@exemplo.com", env)).toBe(true);
-    expect(ehAdminSaas("admin@loja.com", env)).toBe(false);
-    expect(ehAdminSaas("dono@exemplo.com", {})).toBe(false);
+  it("só o id da env entra, e só com 2FA; e-mail não vale", async () => {
+    const env = { SAAS_ADMIN_USER_IDS: " u1 ,u2", SAAS_ADMIN_EMAILS: "dono@exemplo.com" };
+    expect(idsAdminSaas(env)).toEqual(["u1", "u2"]);
+    const db = (u: unknown) => ({ usuario: { findUnique: async () => u } }) as never;
+    expect(await negarAdminSaas({ id: "u1" }, db({ ativo: true, totpSecret: "x" }), env)).toBeNull();
+    expect(await negarAdminSaas({ id: "u1" }, db({ ativo: true, totpSecret: null }), env)).toBe("SEM_2FA");
+    expect(await negarAdminSaas({ id: "u3" }, db({ ativo: true, totpSecret: "x" }), env)).toBe("FORA_DA_LISTA");
+    expect(await negarAdminSaas({ id: "u1" }, db({ ativo: true, totpSecret: "x" }), {})).toBe("FORA_DA_LISTA");
+  });
+  it("somente leitura libera só criar cliente e venda perdida no balcão", () => {
+    const d = (m: string, c: string) => decidirRota("SOMENTE_LEITURA", "x", m, c).liberado;
+    expect(d("POST", "/api/clientes")).toBe(true);
+    expect(d("POST", "/api/vendas-perdidas")).toBe(true);
+    expect(d("PUT", "/api/clientes")).toBe(false);
+    expect(d("PATCH", "/api/clientes/abc")).toBe(false);
+    expect(d("POST", "/api/clientes/abc/b2b")).toBe(false);
+    expect(d("POST", "/api/clientes/abc/crm")).toBe(false);
+    expect(d("PUT", "/api/vendas-perdidas")).toBe(false);
+    expect(d("GET", "/api/clientes/abc/ficha")).toBe(true);
+  });
+  it("suspensa ainda abre assinatura, meus dados e ajuda", () => {
+    expect(paginaLiberadaNaSuspensao("/configuracoes/meus-dados")).toBe(true);
+    expect(paginaLiberadaNaSuspensao("/ajuda")).toBe(true);
+    expect(paginaLiberadaNaSuspensao("/configuracoes/assinatura")).toBe(true);
+    expect(paginaLiberadaNaSuspensao("/configuracoes/usuarios")).toBe(false);
+    expect(paginaLiberadaNaSuspensao("/pdv")).toBe(false);
   });
   it("MRR soma só as ativas (anual dividido por 12), em centavos", () => {
     const pl = (m: string, a: string) => ({ precoMensal: m, precoAnual: a });

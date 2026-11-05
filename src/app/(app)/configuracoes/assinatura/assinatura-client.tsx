@@ -147,6 +147,14 @@ export function AssinaturaClient() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader><CardTitle>Seus dados</CardTitle></CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p className="text-muted-foreground">Você pode baixar todos os seus dados a qualquer momento, mesmo com a conta suspensa ou cancelada.</p>
+          <a href="/api/lgpd/exportar" className="inline-block rounded-md border px-4 py-2 font-medium">Exportar meus dados</a>
+        </CardContent>
+      </Card>
+
       {a && a.status !== "CANCELADA" && a.plano.codigo !== "INTERNO" && (
         <Card>
           <CardHeader><CardTitle>Cancelar assinatura</CardTitle></CardHeader>

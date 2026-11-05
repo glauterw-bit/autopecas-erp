@@ -124,6 +124,28 @@ export type ResultadoMontagem =
 
 export const CSOSN_ACEITOS = new Set(["102", "103", "300", "400", "500"]);
 export const CST_ACEITOS = new Set(["00", "40", "41", "60"]);
+/**
+ * CST/CSOSN que a loja pode salvar como PADRÃO da empresa (Configurações > Fiscal).
+ * Só a tributação normal: Simples 102 e regime normal 00 (coerente com sugerirTributacaoPosSt em
+ * fiscal/st-sp.ts). Isenção, não tributação e ST (40, 41, 60, 300, 400, 500) mudam por produto e
+ * precisam estar no cadastro de cada produto.
+ */
+export const CSOSN_PADRAO_ACEITOS = new Set(["102"]);
+export const CST_PADRAO_ACEITOS = new Set(["00"]);
+export const MSG_PADRAO_RESTRITO = "Isenção, não tributação e ST precisam estar no cadastro de cada produto";
+
+/** CFOPs de venda com substituição tributária (5.401 a 5.403, 5.405 e 6.401 a 6.404). Heurística de bloqueio. */
+export const CFOPS_ST = new Set(["5401", "5402", "5403", "5405", "6401", "6402", "6403", "6404"]);
+
+/** Mensagem de erro se o padrão salvo não serve (null = serve ou vazio). Usado no formulário, no checklist e na emissão. */
+export function erroCstPadrao(simples: boolean, cst: string | undefined | null): string | null {
+  const v = (cst ?? "").trim();
+  if (!v) return null;
+  const aceitos = simples ? CSOSN_PADRAO_ACEITOS : CST_PADRAO_ACEITOS;
+  if (aceitos.has(v)) return null;
+  return `${MSG_PADRAO_RESTRITO}. O padrão da empresa só pode ser ${[...aceitos].join("")} (${simples ? "CSOSN, Simples" : "CST, regime normal"}); está ${v}.`;
+}
+
 /** Resolução SF 13/2012: 4% interestadual para importados (origens 1, 2, 3 e 8). */
 const ORIGENS_4_PORCENTO = new Set([1, 2, 3, 8]);
 
@@ -211,8 +233,15 @@ export function montarNota(d: DadosNota): ResultadoMontagem {
 
     // Cadastro do produto manda; sem ele, o padrão que a loja salvou em
     // Configurações > Fiscal (só na venda: a devolução espelha a nota original).
-    const cst = ((it.cstIcms ?? "").trim() || (d.finalidade === 1 ? d.emitente.config?.cstIcmsPadrao ?? "" : "")).trim();
-    if (!cst) {
+    const cstProduto = (it.cstIcms ?? "").trim();
+    const usaPadrao = !cstProduto && d.finalidade === 1;
+    const cst = (cstProduto || (d.finalidade === 1 ? d.emitente.config?.cstIcmsPadrao ?? "" : "")).trim();
+    const erroPadrao = usaPadrao && cst ? erroCstPadrao(simples, cst) : null;
+    if (usaPadrao && cst && CFOPS_ST.has(cfop)) {
+      erros.push(`${rotulo}: CFOP ${cfop} é de substituição tributária e o produto não tem CST/CSOSN. O padrão da empresa não vale para ST: cadastre o CST no produto.`);
+    } else if (erroPadrao) {
+      erros.push(`${rotulo}: ${erroPadrao} Corrija em Configurações > Fiscal.`);
+    } else if (!cst) {
       erros.push(`${rotulo}: falta ${simples ? "CSOSN" : "CST"} do ICMS no produto (nem há padrão da empresa em Configurações > Fiscal).`);
     } else if (simples && !CSOSN_ACEITOS.has(cst)) {
       erros.push(

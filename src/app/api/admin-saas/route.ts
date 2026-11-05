@@ -4,9 +4,9 @@ import { comAuth } from "@/lib/auth/guard";
 import { estenderTrial, exigirAdminSaas, listarLojas, mudarPlano, reativar, suspender } from "@/lib/assinatura/admin-saas";
 
 // Painel do dono do SaaS. Passa por comAuth (sessão válida) e, além disso, o
-// e-mail precisa estar em SAAS_ADMIN_EMAILS; o perfil da loja não conta.
+// id do usuário precisa estar em SAAS_ADMIN_USER_IDS e ter 2FA; o perfil da loja não conta.
 export const GET = comAuth(null, async (_req, _ctx, usuario) => {
-  exigirAdminSaas(usuario.email);
+  await exigirAdminSaas(usuario);
   return NextResponse.json(await listarLojas());
 });
 
@@ -18,7 +18,7 @@ const acaoSchema = z.discriminatedUnion("acao", [
 ]);
 
 export const POST = comAuth(null, async (req, _ctx, usuario) => {
-  exigirAdminSaas(usuario.email);
+  await exigirAdminSaas(usuario);
   const b = acaoSchema.parse(await req.json());
   const ator = { id: usuario.id, empresaId: usuario.empresaId };
   switch (b.acao) {

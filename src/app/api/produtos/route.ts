@@ -1,3 +1,4 @@
+import { limparTermoBusca } from "@/lib/catalogo/busca-normalizar";
 import { exigirLimiteProdutos } from "@/lib/assinatura/politica";
 import { registrarAuditoria } from "@/lib/auth/auditoria";
 import { NextResponse } from "next/server";
@@ -34,7 +35,7 @@ const produtoSchema = z.object({
 
 export const GET = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
-  const q = req.nextUrl.searchParams.get("q")?.trim();
+  const q = limparTermoBusca(req.nextUrl.searchParams.get("q"));
   const ativo = req.nextUrl.searchParams.get("ativo") !== "false";
   const produtos = await prisma.produto.findMany({
     where: {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { coletarSaude } from "@/lib/operacao/saude";
+import { avisosAdminSaas } from "@/lib/assinatura/admin-saas";
 import { tokenConfere } from "@/lib/operacao/token";
 
 // Saúde completa. Protegido por HEALTH_TOKEN (header Authorization: Bearer ...
@@ -16,5 +17,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ erro: "Não autorizado" }, { status: 401 });
   }
   const saude = await coletarSaude();
-  return NextResponse.json(saude, { status: saude.ok ? 200 : 503 });
+  const avisos = await avisosAdminSaas().catch(() => ["Não foi possível checar a lista do painel /admin-saas."]);
+  return NextResponse.json({ ...saude, avisos }, { status: saude.ok ? 200 : 503 });
 }

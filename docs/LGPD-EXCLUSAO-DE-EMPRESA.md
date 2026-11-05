@@ -19,6 +19,7 @@ Produtos, aplicações, estoque, kardex, clientes, vendas e itens, contas a rece
 - `lancamentos_contabeis` e suas partidas; o plano de contas é compartilhado.
 - A linha da empresa (razão social, CNPJ, IE) e os fornecedores que têm nota de entrada guardada.
 - `aceites_termos` e `logs_auditoria` (prova de conformidade; sem documento completo).
+- `assinaturas` e `consumo_notas_mes`: registro comercial da cobrança (plano, datas, ids do Asaas, notas por mês). Decisão de jul/2026 (revisão R5): ficam, para conferir cobranças e contestações; não têm dado pessoal de cliente da loja. Se o jurídico mandar apagar, é só tirar da lista `MANTIDAS` e incluir os dois passos de DELETE.
 
 ## Trava de segurança
 Se uma tabela nova com `empresaId` ficar com linhas e não estiver na lista de "mantidas" em `src/lib/lgpd/excluir-empresa.ts`, tudo é desfeito com uma mensagem dizendo qual. Ao criar tabela nova com `empresaId`, inclua o passo de exclusão.

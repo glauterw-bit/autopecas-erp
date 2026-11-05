@@ -126,3 +126,22 @@ describe("tela e log nunca mostram o segredo", () => {
     expect(log).toContain("[cifrado]");
   });
 });
+
+describe("revisão R5: padrão restrito e validade digitada", () => {
+  it("recusa 40, 41, 60, 300, 400 e 500 como padrão", () => {
+    for (const cst of ["300", "400", "500"]) {
+      const r = parse({ cstIcmsPadrao: cst });
+      expect(r.success).toBe(false);
+      if (!r.success) expect(errosDeValidacao(r.error).cstIcmsPadrao).toContain("Isenção, não tributação e ST precisam estar no cadastro de cada produto");
+    }
+    for (const cst of ["40", "41", "60"]) {
+      const r = parse({ regimeTributario: "LUCRO_PRESUMIDO", cstIcmsPadrao: cst, cstPisCofinsSimples: "" });
+      expect(r.success).toBe(false);
+      if (!r.success) expect(errosDeValidacao(r.error).cstIcmsPadrao).toContain("Isenção, não tributação e ST");
+    }
+  });
+  it("validade digitada só vale no modo token (a Focus já tem o certificado)", () => {
+    expect(parse({ modo: "api", certificadoValidoAte: "2027-03-31" }).success).toBe(false);
+    expect(parse({ modo: "token", certificadoValidoAte: "2027-03-31" }).success).toBe(true);
+  });
+});

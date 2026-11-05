@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   analisarTermo,
+  limparTermoBusca,
   escaparLike,
   normalizarCodigo,
   normalizarTexto,
@@ -128,5 +129,16 @@ describe("variantesPalavra: letra e número com ou sem traço", () => {
     const t = analisarTermo("oleo 5w30");
     const acha = t.palavras.every((p) => variantesPalavra(p).some((v) => nome.includes(v)));
     expect(acha).toBe(true);
+  });
+});
+
+describe("limparTermoBusca", () => {
+  it("tira byte nulo e controle, e limita o tamanho", () => {
+    expect(limparTermoBusca("\u0000")).toBe("");
+    expect(limparTermoBusca("\u0000abc")).toBe("abc");
+    expect(limparTermoBusca(decodeURIComponent("%00"))).toBe("");
+    expect(limparTermoBusca("a".repeat(10000))).toHaveLength(100);
+    expect(limparTermoBusca("pastilha\tfreio\n")).toBe("pastilha freio");
+    expect(limparTermoBusca(null)).toBe("");
   });
 });

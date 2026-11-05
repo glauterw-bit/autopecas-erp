@@ -94,6 +94,7 @@ export async function escolherPlano(ator: Ator, escolha: EscolhaPlano, db: Db = 
 
   // Quem tinha cancelado volta "aguardando o primeiro pagamento" (carência normal).
   const voltandoDeCancelada = ass.status === "CANCELADA";
+  const assinaturaNova = !ass.asaasAssinaturaId || ass.status === "CANCELADA" || assinaturaId !== ass.asaasAssinaturaId;
   const depois = await db.$transaction(async (tx) => {
     const atual = await tx.assinatura.update({
       where: { id: ass.id },
@@ -103,8 +104,12 @@ export async function escolherPlano(ator: Ator, escolha: EscolhaPlano, db: Db = 
         formaPagamento: escolha.forma,
         asaasClienteId: clienteId,
         asaasAssinaturaId: assinaturaId,
-        proximoVencimento: new Date(`${primeiroVencimento}T12:00:00Z`),
-        ...(voltandoDeCancelada ? { status: "INADIMPLENTE", inadimplenteDesde: agora, canceladaEm: null } : {}),
+        // O vencimento só muda quando a assinatura é nova; quem já está ATIVA e só troca de plano mantém a data.
+        ...(assinaturaNova ? { proximoVencimento: new Date(`${primeiroVencimento}T12:00:00Z`) } : {}),
+        // Quem volta de CANCELADA sem pagar fica INADIMPLENTE, mas a dívida antiga NÃO zera:
+        // se já havia atraso, a data original é mantida (sem ganhar mais 20 dias de uso grátis).
+        // Só quem nunca teve atraso ganha a carência normal, a partir de agora.
+        ...(voltandoDeCancelada ? { status: "INADIMPLENTE", inadimplenteDesde: ass.inadimplenteDesde ?? agora, canceladaEm: null } : {}),
       },
     });
     await registrarAuditoria(tx, {
