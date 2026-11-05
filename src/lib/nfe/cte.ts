@@ -1,5 +1,6 @@
 import axios from "axios";
 import { prisma } from "../db";
+import { configFocus } from "./config-focus";
 
 // CT-e — Conhecimento de Transporte Eletrônico
 // ============================================
@@ -39,7 +40,8 @@ export async function emitirCte(input: CteInput) {
   const empresa = await prisma.empresa.findUniqueOrThrow({
     where: { id: input.empresaId },
   });
-  const ambiente = (process.env.FOCUS_NFE_AMBIENTE as "homologacao" | "producao") ?? "homologacao";
+  const cfg = configFocus(empresa);
+  const ambiente = cfg.ambiente;
   const ref = `cte-${Date.now()}`;
 
   const payload = {
@@ -69,7 +71,7 @@ export async function emitirCte(input: CteInput) {
 
   const url = `${FOCUS_BASE[ambiente]}/v2/cte?ref=${ref}`;
   const { data } = await axios.post(url, payload, {
-    auth: { username: process.env.FOCUS_NFE_TOKEN ?? "", password: "" },
+    auth: { username: cfg.token, password: "" },
     headers: { "Content-Type": "application/json" },
     validateStatus: () => true,
   });

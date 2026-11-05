@@ -1,5 +1,6 @@
 import axios from "axios";
 import { prisma } from "../db";
+import { configFocus } from "./config-focus";
 
 // Operações fiscais sobre NF-e já emitida.
 // Cobre os eventos previstos pela SEFAZ:
@@ -16,11 +17,21 @@ const FOCUS_BASE: Record<string, string> = {
   producao: "https://api.focusnfe.com.br",
 };
 
-function authToken() {
-  return { username: process.env.FOCUS_NFE_TOKEN ?? "", password: "" };
+// Token e ambiente por empresa (config-focus.ts). Para nota já emitida, o
+// ambiente é o da própria nota: nota de homologação nunca vai para produção.
+async function focusDaEmpresa(empresaId: string) {
+  const empresa = await prisma.empresa.findUniqueOrThrow({
+    where: { id: empresaId },
+    select: { cnpj: true, configuracoes: true },
+  });
+  const cfg = configFocus(empresa);
+  return { cfg, auth: { username: cfg.token, password: "" }, empresa };
 }
-function ambiente() {
-  return (process.env.FOCUS_NFE_AMBIENTE as "homologacao" | "producao") ?? "homologacao";
+
+async function focusDaNota(nota: { empresaId: string; ambiente: string }) {
+  const { auth } = await focusDaEmpresa(nota.empresaId);
+  const base = FOCUS_BASE[nota.ambiente === "PRODUCAO" ? "producao" : "homologacao"];
+  return { auth, base };
 }
 
 // 1) Cancelamento — exige justificativa mínima de 15 caracteres.
@@ -30,9 +41,10 @@ export async function cancelarNotaFiscal(notaId: string, justificativa: string) 
   const nota = await prisma.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
   if (nota.status !== "AUTORIZADA")
     throw new Error("Só é possível cancelar nota autorizada");
-  const url = `${FOCUS_BASE[ambiente()]}/v2/${refDe(nota)}`;
+  const { auth, base } = await focusDaNota(nota);
+  const url = `${base}/v2/${await refDe(nota)}`;
   const { data } = await axios.delete(url, {
-    auth: authToken(),
+    auth,
     data: { justificativa },
     validateStatus: () => true,
   });
@@ -54,14 +66,15 @@ export async function emitirCartaCorrecao(notaId: string, correcao: string) {
   if (correcao.length < 15)
     throw new Error("Correção exige mínimo de 15 caracteres");
   const nota = await prisma.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
-  const ref = refDe(nota);
+  const ref = await refDe(nota);
+  const { auth, base } = await focusDaNota(nota);
   const ccePayload = {
     correcao,
     chave_nfe: nota.chaveAcesso,
   };
-  const url = `${FOCUS_BASE[ambiente()]}/v2/${ref}/carta_correcao`;
+  const url = `${base}/v2/${ref}/carta_correcao`;
   const { data } = await axios.post(url, ccePayload, {
-    auth: authToken(),
+    auth,
     validateStatus: () => true,
   });
 
@@ -95,10 +108,8 @@ export async function inutilizarRange(opts: {
 }) {
   if (opts.justificativa.length < 15)
     throw new Error("Justificativa exige 15 caracteres");
-  const empresa = await prisma.empresa.findUniqueOrThrow({
-    where: { id: opts.empresaId },
-  });
-  const url = `${FOCUS_BASE[ambiente()]}/v2/nfe/inutilizacao`;
+  const { cfg, auth, empresa } = await focusDaEmpresa(opts.empresaId);
+  const url = `${FOCUS_BASE[cfg.ambiente]}/v2/nfe/inutilizacao`;
   const { data } = await axios.post(
     url,
     {
@@ -108,7 +119,7 @@ export async function inutilizarRange(opts: {
       numero_final: opts.numeroFinal,
       justificativa: opts.justificativa,
     },
-    { auth: authToken(), validateStatus: () => true },
+    { auth, validateStatus: () => true },
   );
 
   // Registra como NF inutilizada na base
@@ -129,7 +140,7 @@ export async function inutilizarRange(opts: {
         serie: opts.serie,
         numero: n,
         status: "INUTILIZADA",
-        ambiente: ambiente() === "producao" ? "PRODUCAO" : "HOMOLOGACAO",
+        ambiente: cfg.ambiente === "producao" ? "PRODUCAO" : "HOMOLOGACAO",
         naturezaOperacao: "INUTILIZAÇÃO",
         valorProdutos: 0,
         valorTotal: 0,
@@ -158,31 +169,30 @@ export async function manifestarDestinatario(opts: {
 }) {
   if (opts.evento === "OPERACAO_NAO_REALIZADA" && !opts.justificativa)
     throw new Error("Operação não realizada exige justificativa");
-  const empresa = await prisma.empresa.findUniqueOrThrow({
-    where: { id: opts.empresaId },
-  });
+  const { cfg, auth, empresa } = await focusDaEmpresa(opts.empresaId);
   const tipoEvento = {
     CONFIRMACAO: "confirmacao",
     CIENCIA: "ciencia",
     DESCONHECIMENTO: "desconhecimento",
     OPERACAO_NAO_REALIZADA: "nao_realizada",
   }[opts.evento];
-  const url = `${FOCUS_BASE[ambiente()]}/v2/nfe/manifestacao/${opts.chaveAcesso}/${tipoEvento}`;
+  const url = `${FOCUS_BASE[cfg.ambiente]}/v2/nfe/manifestacao/${opts.chaveAcesso}/${tipoEvento}`;
   const { data } = await axios.post(
     url,
     {
       cnpj: empresa.cnpj,
       justificativa: opts.justificativa,
     },
-    { auth: authToken(), validateStatus: () => true },
+    { auth, validateStatus: () => true },
   );
   return data;
 }
 
 // 5) Consulta NF-e (na SEFAZ) — útil para verificar se foi cancelada/denegada.
-export async function consultarNFe(chaveAcesso: string) {
-  const url = `${FOCUS_BASE[ambiente()]}/v2/nfe/${chaveAcesso}`;
-  const { data } = await axios.get(url, { auth: authToken(), validateStatus: () => true });
+export async function consultarNFe(chaveAcesso: string, empresaId: string) {
+  const { cfg, auth } = await focusDaEmpresa(empresaId);
+  const url = `${FOCUS_BASE[cfg.ambiente]}/v2/nfe/${chaveAcesso}`;
+  const { data } = await axios.get(url, { auth, validateStatus: () => true });
   return data;
 }
 
@@ -190,11 +200,18 @@ export async function consultarNFe(chaveAcesso: string) {
 export async function baixarDocumentos(notaId: string) {
   const nota = await prisma.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
   if (!nota.chaveAcesso) throw new Error("Nota sem chave de acesso");
-  const xmlUrl = `${FOCUS_BASE[ambiente()]}/v2/nfe/${nota.chaveAcesso}.xml`;
-  const danfeUrl = `${FOCUS_BASE[ambiente()]}/v2/nfe/${nota.chaveAcesso}.pdf`;
+  const base = FOCUS_BASE[nota.ambiente === "PRODUCAO" ? "producao" : "homologacao"];
+  const xmlUrl = `${base}/v2/nfe/${nota.chaveAcesso}.xml`;
+  const danfeUrl = `${base}/v2/nfe/${nota.chaveAcesso}.pdf`;
   return { xmlUrl, danfeUrl };
 }
 
-function refDe(nota: { id: string }) {
-  return `nfe?ref=venda-${nota.id}`;
+// Caminho do documento na Focus: /v2/{nfe|nfce}/{referência}. A referência é a
+// gravada na emissão (refProvedor); notas antigas usam "venda-<id da venda>".
+async function refDe(nota: { id: string; modelo: string; refProvedor: string | null }) {
+  const tipo = nota.modelo === "NFCE_65" ? "nfce" : "nfe";
+  if (nota.refProvedor) return `${tipo}/${nota.refProvedor}`;
+  const venda = await prisma.venda.findFirst({ where: { notaFiscalId: nota.id }, select: { id: true } });
+  if (!venda) throw new Error("Não foi possível achar a referência desta nota no emissor");
+  return `${tipo}/venda-${venda.id}`;
 }

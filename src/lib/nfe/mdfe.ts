@@ -1,5 +1,6 @@
 import axios from "axios";
 import { prisma } from "../db";
+import { chaveEhDaEmpresa, configFocus } from "./config-focus";
 
 // MDF-e — Manifesto Eletrônico de Documentos Fiscais
 // ==================================================
@@ -50,7 +51,11 @@ export async function emitirMdfe(input: MdfeInput) {
   const empresa = await prisma.empresa.findUniqueOrThrow({
     where: { id: input.empresaId },
   });
-  const ambiente = (process.env.FOCUS_NFE_AMBIENTE as "homologacao" | "producao") ?? "homologacao";
+  // Carga própria: só NF-e emitidas pela própria empresa (CNPJ embutido na chave).
+  const alheias = input.notasFiscaisChaves.filter((c) => !chaveEhDaEmpresa(c, empresa.cnpj));
+  if (alheias.length) throw new Error("Há chave de NF-e que não é desta empresa no MDF-e");
+  const cfg = configFocus(empresa);
+  const ambiente = cfg.ambiente;
   const ref = `mdfe-${Date.now()}`;
 
   const payload = {
@@ -98,7 +103,7 @@ export async function emitirMdfe(input: MdfeInput) {
 
   const url = `${FOCUS_BASE[ambiente]}/v2/mdfe?ref=${ref}`;
   const { data } = await axios.post(url, payload, {
-    auth: { username: process.env.FOCUS_NFE_TOKEN ?? "", password: "" },
+    auth: { username: cfg.token, password: "" },
     headers: { "Content-Type": "application/json" },
     validateStatus: () => true,
   });
@@ -108,11 +113,13 @@ export async function emitirMdfe(input: MdfeInput) {
 
 // Encerramento do MDF-e — obrigatório quando a viagem termina.
 export async function encerrarMdfe(opts: {
+  empresaId: string;
   chaveMdfe: string;
   ufEncerramento: string;
   cidadeIbge: string;
 }) {
-  const ambiente = (process.env.FOCUS_NFE_AMBIENTE as "homologacao" | "producao") ?? "homologacao";
+  const cfg = await exigirMdfeDaEmpresa(opts.chaveMdfe, opts.empresaId);
+  const ambiente = cfg.ambiente;
   const url = `${FOCUS_BASE[ambiente]}/v2/mdfe/encerramento`;
   const { data } = await axios.post(
     url,
@@ -124,20 +131,32 @@ export async function encerrarMdfe(opts: {
       data_encerramento: new Date().toISOString().slice(0, 10),
     },
     {
-      auth: { username: process.env.FOCUS_NFE_TOKEN ?? "", password: "" },
+      auth: { username: cfg.token, password: "" },
       validateStatus: () => true,
     },
   );
   return data;
 }
 
-export async function cancelarMdfe(chaveMdfe: string, justificativa: string) {
+// Isolamento entre empresas: a chave do MDF-e traz o CNPJ do emitente
+// (posições 7 a 20). Só a empresa dona do CNPJ encerra ou cancela.
+async function exigirMdfeDaEmpresa(chaveMdfe: string, empresaId: string) {
+  const empresa = await prisma.empresa.findUniqueOrThrow({
+    where: { id: empresaId },
+    select: { cnpj: true, configuracoes: true },
+  });
+  if (!chaveEhDaEmpresa(chaveMdfe, empresa.cnpj)) throw new Error("MDF-e não encontrado");
+  return configFocus(empresa);
+}
+
+export async function cancelarMdfe(chaveMdfe: string, justificativa: string, empresaId: string) {
   if (justificativa.length < 15)
     throw new Error("Justificativa de cancelamento exige 15 caracteres");
-  const ambiente = (process.env.FOCUS_NFE_AMBIENTE as "homologacao" | "producao") ?? "homologacao";
+  const cfg = await exigirMdfeDaEmpresa(chaveMdfe, empresaId);
+  const ambiente = cfg.ambiente;
   const url = `${FOCUS_BASE[ambiente]}/v2/mdfe/${chaveMdfe}/cancelamento`;
   const { data } = await axios.delete(url, {
-    auth: { username: process.env.FOCUS_NFE_TOKEN ?? "", password: "" },
+    auth: { username: cfg.token, password: "" },
     data: { justificativa },
     validateStatus: () => true,
   });

@@ -1,5 +1,6 @@
 import axios from "axios";
 import { prisma } from "../db";
+import { configFocus } from "./config-focus";
 
 // NFS-e — Nota Fiscal de Serviço Eletrônica
 // =========================================
@@ -57,7 +58,16 @@ export async function emitirNfse(opts: {
   const empresa = await prisma.empresa.findUniqueOrThrow({
     where: { id: opts.empresaId },
   });
-  const ambiente = (process.env.FOCUS_NFE_AMBIENTE as "homologacao" | "producao") ?? "homologacao";
+  // Isolamento entre empresas: a venda informada precisa ser da empresa da sessão.
+  if (opts.vendaId) {
+    const venda = await prisma.venda.findFirst({
+      where: { id: opts.vendaId, empresaId: opts.empresaId },
+      select: { id: true },
+    });
+    if (!venda) throw new Error("Venda não encontrada");
+  }
+  const cfg = configFocus(empresa);
+  const ambiente = cfg.ambiente;
   const ref = `nfse-${Date.now()}`;
 
   const valorServicos = opts.itens.reduce(
@@ -106,7 +116,7 @@ export async function emitirNfse(opts: {
 
   const url = `${FOCUS_NFSE_BASE[ambiente]}/v2/nfse?ref=${ref}`;
   const { data } = await axios.post(url, payload, {
-    auth: { username: process.env.FOCUS_NFE_TOKEN ?? "", password: "" },
+    auth: { username: cfg.token, password: "" },
     headers: { "Content-Type": "application/json" },
     validateStatus: () => true,
   });
@@ -133,8 +143,8 @@ export async function emitirNfse(opts: {
 
   if (opts.vendaId) {
     await prisma.venda
-      .update({
-        where: { id: opts.vendaId },
+      .updateMany({
+        where: { id: opts.vendaId, empresaId: opts.empresaId },
         data: { notaFiscalId: nota.id, status: "FATURADA" },
       })
       .catch(() => undefined);
@@ -143,13 +153,17 @@ export async function emitirNfse(opts: {
   return nota;
 }
 
-export async function cancelarNfse(notaId: string, motivo: string) {
-  const nota = await prisma.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+export async function cancelarNfse(notaId: string, motivo: string, empresaId: string) {
+  const nota = await prisma.notaFiscal.findFirst({
+    where: { id: notaId, empresaId },
+    include: { empresa: { select: { cnpj: true, configuracoes: true } } },
+  });
+  if (!nota) throw new Error("Nota fiscal não encontrada");
   if (nota.modelo !== "NFSE") throw new Error("Nota não é NFS-e");
-  const ambiente = (process.env.FOCUS_NFE_AMBIENTE as "homologacao" | "producao") ?? "homologacao";
-  const url = `${FOCUS_NFSE_BASE[ambiente]}/v2/nfse/nfse-${nota.id}`;
+  const cfg = configFocus(nota.empresa);
+  const url = `${FOCUS_NFSE_BASE[cfg.ambiente]}/v2/nfse/nfse-${nota.id}`;
   await axios.delete(url, {
-    auth: { username: process.env.FOCUS_NFE_TOKEN ?? "", password: "" },
+    auth: { username: cfg.token, password: "" },
     data: { justificativa: motivo },
   });
   return prisma.notaFiscal.update({
