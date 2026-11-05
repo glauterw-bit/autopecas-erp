@@ -38,7 +38,11 @@ export function iguaisTempoConstante(a: string, b: string): boolean {
 
 export function ipDaRequisicao(headers: Headers): string | null {
   const xff = headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0]!.trim();
+  if (xff) {
+    // Último endereço: o que o nosso proxy acrescenta (os da frente podem ser inventados).
+    const partes = xff.split(",").map((p) => p.trim()).filter(Boolean);
+    if (partes.length) return partes[partes.length - 1]!;
+  }
   return headers.get("x-real-ip");
 }
 

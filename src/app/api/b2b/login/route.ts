@@ -3,6 +3,7 @@ import { z } from "zod";
 import { loginB2B } from "@/lib/b2b/sessao";
 import { permitido } from "@/lib/auth/rate-limit";
 import { respostaErro } from "@/lib/auth/guard";
+import { ipDoCliente } from "@/lib/auth/ip";
 
 const schema = z.object({
   cpfCnpj: z.string().min(11),
@@ -11,7 +12,7 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+    const ip = ipDoCliente(req);
     if (!permitido(`b2b-login:${ip}`, 10, 15 * 60 * 1000)) {
       return NextResponse.json({ erro: "Muitas tentativas. Aguarde 15 minutos." }, { status: 429 });
     }

@@ -17,8 +17,12 @@ describe("autenticação do webhook Pix", () => {
   });
   it("lista de IPs do PSP", () => {
     const e = env({ PIX_WEBHOOK_SECRET: "s", PIX_WEBHOOK_IPS: "34.193.116.226" });
-    expect(autenticarWebhookPix(req("hmac=s", { "x-forwarded-for": "34.193.116.226, 10.0.0.1" }), e).ok).toBe(true);
+    // O proxy acrescenta o IP real no fim; vale o último.
+    expect(autenticarWebhookPix(req("hmac=s", { "x-forwarded-for": "34.193.116.226" }), e).ok).toBe(true);
+    expect(autenticarWebhookPix(req("hmac=s", { "x-forwarded-for": "10.9.9.9, 34.193.116.226" }), e).ok).toBe(true);
     expect(autenticarWebhookPix(req("hmac=s", { "x-forwarded-for": "1.2.3.4" }), e)).toMatchObject({ status: 403 });
+    // IP do PSP forjado na frente do cabeçalho não passa.
+    expect(autenticarWebhookPix(req("hmac=s", { "x-forwarded-for": "34.193.116.226, 1.2.3.4" }), e)).toMatchObject({ status: 403 });
   });
   it("mTLS na borda: exige proxy confiável, verificação e impressão digital", () => {
     const e = env({

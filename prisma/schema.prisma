@@ -1613,6 +1613,7 @@ enum TipoInsight {
   CADASTRO_DUPLICADO
   PRODUTO_OBSOLETO
   NFE_PENDENTE
+  VENDA_REVISAO
 }
 
 enum Severidade {

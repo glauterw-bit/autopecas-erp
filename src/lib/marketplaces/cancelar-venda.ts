@@ -58,7 +58,7 @@ export async function cancelarVendaMarketplace(
         await tx.insightIA.create({
           data: {
             empresaId,
-            tipo: "CADASTRO_DUPLICADO",
+            tipo: "VENDA_REVISAO",
             severidade: "CRITICO",
             titulo: `Pedido cancelado com nota fiscal emitida (venda #${venda.numero})`,
             descricao: `${motivo} O sistema não cancelou a nota nem devolveu o estoque.`,
@@ -138,7 +138,7 @@ export async function cancelarVendaMarketplace(
       await tx.insightIA.create({
         data: {
           empresaId,
-          tipo: "CADASTRO_DUPLICADO",
+          tipo: "VENDA_REVISAO",
           severidade: "CRITICO",
           titulo: `Pedido cancelado com pagamento parcial já recebido (venda #${venda.numero})`,
           descricao: `O pedido ${pedidoIdExterno} foi cancelado no marketplace, mas ${parciais.length} conta(s) a receber da venda #${venda.numero} já tinha(m) valor recebido. O sistema devolveu o estoque, mas NÃO cancelou essa(s) conta(s) nem estornou o que já entrou.`,
