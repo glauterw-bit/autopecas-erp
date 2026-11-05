@@ -31,6 +31,7 @@ export const queues = {
   tecdoc:       new Queue("catalogo:tecdoc", defaults),
   whatsapp:     new Queue("comms:whatsapp",  defaults),
   notificacoes: new Queue("comms:push",      defaults),
+  saude:        new Queue("ops:saude", { ...defaults, defaultJobOptions: { ...defaults.defaultJobOptions, attempts: 1 } }),
   nfeconsulta:  new Queue("fiscal:nfe-consulta", { ...defaults, defaultJobOptions: { ...defaults.defaultJobOptions, attempts: 1 } }),
 } as const;
 

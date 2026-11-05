@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { prisma } from "../db";
 import { usuarioDaSessao, podePerfil } from "./config";
+import { comRequestId, novoRequestId, registrarErro, requestIdAtual } from "../observabilidade";
 
 // Guard central das rotas de API
 // ==============================
@@ -40,16 +41,24 @@ type Handler<C> = (req: NextRequest, ctx: C, usuario: UsuarioSessao) => Promise<
 
 export function comAuth<C = unknown>(perfilMinimo: string | null, handler: Handler<C>) {
   return async (req: NextRequest, ctx: C): Promise<Response> => {
-    try {
-      const usuario = await exigirSessao(perfilMinimo ?? undefined);
-      return await handler(req, ctx, usuario);
-    } catch (e) {
-      return respostaErro(e);
-    }
+    const requestId = novoRequestId();
+    return comRequestId(requestId, async () => {
+      let res: Response;
+      let empresaId: string | undefined;
+      try {
+        const usuario = await exigirSessao(perfilMinimo ?? undefined);
+        empresaId = usuario.empresaId;
+        res = await handler(req, ctx, usuario);
+      } catch (e) {
+        res = respostaErro(e, { rota: req.nextUrl?.pathname, empresaId });
+      }
+      try { res.headers.set("x-request-id", requestId); } catch { /* resposta imutável */ }
+      return res;
+    });
   };
 }
 
-export function respostaErro(e: unknown): NextResponse {
+export function respostaErro(e: unknown, ctx: { rota?: string; empresaId?: string } = {}): NextResponse {
   if (e instanceof ApiError) {
     return NextResponse.json({ erro: e.message }, { status: e.status });
   }
@@ -62,10 +71,15 @@ export function respostaErro(e: unknown): NextResponse {
   const msg = (e as Error).message ?? "";
   const negocio =
     msg.length < 160 && !/prisma|invocation|constraint|connect|ECONN|timeout/i.test(msg);
-  console.error("[api]", e);
+  if (negocio && msg) {
+    if (!(e instanceof Error) || e.constructor !== Error) registrarErro(e, { ...ctx, nivel: "warning" });
+    return NextResponse.json({ erro: msg }, { status: 400 });
+  }
+  const requestId = requestIdAtual() ?? novoRequestId();
+  registrarErro(e, { ...ctx, requestId });
   return NextResponse.json(
-    { erro: negocio && msg ? msg : "Erro interno" },
-    { status: negocio ? 400 : 500 },
+    { erro: `Erro interno. Informe o código ${requestId} ao suporte.`, requestId },
+    { status: 500, headers: { "x-request-id": requestId } },
   );
 }
 

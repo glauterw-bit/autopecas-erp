@@ -7,6 +7,24 @@
 // Logs detalhados para facilitar debug no Railway.
 
 import { execSync } from "node:child_process";
+import { validarEnvs } from "../src/lib/operacao/env";
+
+// Confere as variáveis de ambiente antes de qualquer coisa e diz o que falta,
+// em português. Só DATABASE_URL derruba o boot; o resto avisa.
+function conferirEnvs() {
+  const r = validarEnvs();
+  if (r.fatais.length) {
+    console.error(`[bootstrap] ERRO: variável obrigatória faltando: ${r.fatais.join(", ")}.`);
+    console.error("[bootstrap] Sem ela o sistema não sobe. Configure no Railway (Variables) e publique de novo.");
+    process.exit(1);
+  }
+  if (r.obrigatorias.length) {
+    console.error(`[bootstrap] ATENÇÃO: faltando ou inválida(s): ${r.obrigatorias.join(", ")}. O sistema sobe, mas partes dele vão falhar (login B2B, webhooks, links).`);
+  }
+  if (r.opcionais.length) {
+    console.warn(`[bootstrap] Opcionais não configuradas (recursos desligados): ${r.opcionais.join(", ")}`);
+  }
+}
 
 function migrar() {
   const run = (cmd: string) => execSync(cmd, { stdio: "pipe", env: process.env }).toString();
@@ -28,6 +46,7 @@ function migrar() {
 }
 
 async function main() {
+  conferirEnvs();
   console.log("[bootstrap] Aplicando migrations...");
   try {
     migrar();
