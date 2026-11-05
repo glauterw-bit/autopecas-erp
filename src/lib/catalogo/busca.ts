@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import {
   analisarTermo,
+  limparTermoBusca,
   escaparLike,
   ordenarPorRelevancia,
   Relevancia,
@@ -54,7 +55,7 @@ export async function buscarProdutosPDV(opts: {
   const limite = Math.min(Math.max(1, opts.limite ?? 20), LIMITE_MAX);
   const pagina = Math.max(1, Math.floor(opts.pagina ?? 1));
   const pular = (pagina - 1) * limite;
-  const termo = opts.termo?.trim();
+  const termo = limparTermoBusca(opts.termo) || undefined;
   const incluir = { marca: true, estoques: true } as const;
 
   // 1. Match exato em qualquer código, como está cadastrado (leitor de código de barras).
@@ -86,7 +87,7 @@ export async function buscarProdutosPDV(opts: {
       where: {
         empresaId: opts.empresaId,
         ativo: true,
-        aplicacoes: { some: { versaoId: opts.versaoId } },
+        aplicacoes: { some: { versaoId: limparTermoBusca(opts.versaoId, 40) } },
         ...(termo && { nome: { contains: termo, mode: "insensitive" } }),
       },
       include: incluir,

@@ -7,7 +7,10 @@
 //   - a linha da empresa (razão social, CNPJ, IE), sem e-mail, telefone,
 //     endereço, chaves e configurações;
 //   - fornecedores que têm nota de entrada guardada (para identificar a nota);
-//   - aceites_termos e logs_auditoria (prova de conformidade; sem documento completo).
+//   - aceites_termos e logs_auditoria (prova de conformidade; sem documento completo);
+//   - assinaturas e consumo_notas_mes: registro comercial da cobrança (plano, datas, ids do
+//     Asaas, notas emitidas por mês). Decisão da revisão R5: ficam, porque servem para
+//     conferir cobranças e contestações e não guardam dado pessoal de cliente da loja.
 // Tudo roda numa transação. Na simulação a transação é desfeita no fim, então
 // as contagens são exatas e os vínculos do banco (FK) também são testados.
 import type { PrismaClient } from "@prisma/client";
@@ -59,7 +62,7 @@ const PASSOS: [string, string][] = [
 ];
 
 /** Tabelas com "empresaId" que podem continuar com linhas depois da exclusão. */
-export const MANTIDAS = ["notas_fiscais", "lancamentos_contabeis", "aceites_termos", "fornecedores"] as const;
+export const MANTIDAS = ["notas_fiscais", "lancamentos_contabeis", "aceites_termos", "fornecedores", "assinaturas", "consumo_notas_mes"] as const;
 
 export type ResultadoExclusao = {
   simulacao: boolean;

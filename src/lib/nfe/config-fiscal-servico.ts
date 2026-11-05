@@ -149,7 +149,10 @@ export async function receberCertificado(
   const cnpjEmpresa = e.cnpj.replace(/\D/g, "");
   // A SEFAZ aceita certificado com a mesma raiz de CNPJ (8 primeiros dígitos)
   // do emitente; outra raiz é rejeitada (MOC NF-e, rejeição 213).
-  if (cert.cnpj && cert.cnpj.slice(0, 8) !== cnpjEmpresa.slice(0, 8)) {
+  if (!cert.cnpj) {
+    throw new ApiError(422, "Não foi possível ler o CNPJ do certificado. Confira se é um certificado A1 de empresa (e-CNPJ) e envie de novo.");
+  }
+  if (cert.cnpj.slice(0, 8) !== cnpjEmpresa.slice(0, 8)) {
     throw new ApiError(422, `Este certificado é de outro CNPJ (${cert.cnpj.slice(0, 2)}.${cert.cnpj.slice(2, 5)}.***), não da loja. Envie o certificado da própria empresa.`);
   }
   if (cert.validoAte.getTime() <= agora.getTime()) {

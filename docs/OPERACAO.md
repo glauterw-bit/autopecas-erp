@@ -44,5 +44,18 @@ Recomendadas conforme o uso: `REDIS_URL` (worker, filas), `FOCUS_NFE_TOKEN` e `F
 Operação: `SENTRY_DSN`, `HEALTH_TOKEN`, `ALERTA_WEBHOOK_URL`, `ALERTA_EMAIL`, `SUPORTE_WHATSAPP`, `SUPORTE_EMAIL`, `SUPORTE_HORARIO`.
 Lista no código: `src/lib/operacao/env.ts`.
 
+## Painel do dono do SaaS (/admin-saas)
+O acesso é por **id de usuário**, não por e-mail (e-mail de cadastro ninguém confirma; quem se cadastrasse com o e-mail da lista viraria dono). Decisão: `SAAS_ADMIN_EMAILS` foi removida e é ignorada.
+1. Ligue o 2FA do seu usuário em Configurações (sem 2FA o painel responde 404 e o log registra um aviso).
+2. Descubra seu id: `npx tsx scripts/meu-id-saas.ts seu@email.com`, ou no psql: `select id, ativo, "totpSecret" is not null as dois_fatores from usuarios where email = 'seu@email.com';`
+3. Ponha no Railway `SAAS_ADMIN_USER_IDS=<id>` (vários ids separados por vírgula) e publique.
+O `/api/health/detalhado` traz `avisos` quando a lista está vazia, quando um id não existe ou quando o usuário está sem 2FA.
+
+## Antes de publicar (checklist fiscal por loja)
+A emissão de nota agora **trava** se a configuração fiscal da loja estiver incompleta (certificado, CSC, CST/CSOSN padrão etc.). Toda loja que já emite precisa preencher **Configurações → Fiscal** ANTES do deploy; senão, a primeira nota depois da publicação é recusada com a mensagem do que falta.
+- Rode antes: `npx tsx scripts/prontidao-fiscal.ts` (só leitura, sem segredo na saída). Lista cada empresa e o que falta no checklist.
+- Empresa com pendência: preencha com o contador da loja e rode de novo até ficar sem pendência.
+- Não mude a regra do emissor para "passar": nota errada vira multa para a loja.
+
 ## CI
 `.github/workflows/ci.yml` roda em todo push e PR: instala, aplica as migrações num Postgres 15 vazio, confere que o schema bate com as migrações, tsc, testes (incluindo os de integração) e build. Ele passa a valer quando o arquivo for para o GitHub (`git push`); depois, em Settings, Branches, exija o check "CI / verificar" antes de juntar PR.

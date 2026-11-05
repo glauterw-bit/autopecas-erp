@@ -40,6 +40,12 @@ export interface TermoAnalisado {
   anos: number[];
 }
 
+/** Texto livre de busca: sem byte nulo nem caracteres de controle (o Postgres recusa \u0000) e com tamanho limitado. */
+export function limparTermoBusca(termo: string | null | undefined, max = 100): string {
+  // eslint-disable-next-line no-control-regex
+  return (termo ?? "").replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
 export function analisarTermo(termo: string): TermoAnalisado {
   const bruto = termo.trim();
   const texto = normalizarTexto(bruto);

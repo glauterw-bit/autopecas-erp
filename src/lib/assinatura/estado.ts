@@ -155,9 +155,15 @@ export const PREFIXOS_BALCAO = [
   "/api/caixa",
   "/api/pdv",
   "/api/pix/cobranca",
-  "/api/clientes",
   "/api/produtos/buscar-pdv",
 ];
+
+/**
+ * Escritas exatas liberadas no balcão (método + caminho, sem sub-rotas):
+ * criação rápida de cliente (POST /api/clientes) e registro de venda perdida (F8 do PDV).
+ * Edição de cadastro, crédito, /b2b e /crm de cliente continuam travados.
+ */
+const ESCRITAS_EXATAS_BALCAO = new Set(["POST /api/clientes", "POST /api/vendas-perdidas"]);
 
 /** Consulta da nota de uma venda (o PDV confere a NFC-e). Não libera importação de XML. */
 const CONSULTA_NOTA = /^\/api\/nfe\/[^/]+\/consultar$/;
@@ -180,7 +186,7 @@ export function decidirRota(modo: ModoAcesso, mensagem: string | null, metodo: s
   }
   // SOMENTE_LEITURA
   if (!ehMetodoDeEscrita(metodo)) return { liberado: true };
-  if (comecaCom(caminho, PREFIXOS_BALCAO) || CONSULTA_NOTA.test(caminho)) return { liberado: true };
+  if (comecaCom(caminho, PREFIXOS_BALCAO) || CONSULTA_NOTA.test(caminho) || ESCRITAS_EXATAS_BALCAO.has(`${metodo.toUpperCase()} ${caminho.replace(/\/+$/, "")}`)) return { liberado: true };
   return {
     liberado: false,
     status: 402,
@@ -296,4 +302,9 @@ export function checarLimiteSimples(
     return { ok: false, erro: `Seu plano permite ${limite} ${plural(limite, singular, pluralNome)}. Mude de plano em Configurações > Assinatura.` };
   }
   return { ok: true, aviso: null, percentual: Math.round((quantidadeAtual / limite) * 100) };
+}
+
+/** Páginas que a loja suspensa ainda abre: pagar, exportar os próprios dados e ajuda. */
+export function paginaLiberadaNaSuspensao(rota: string): boolean {
+  return ["/configuracoes/assinatura", "/configuracoes/meus-dados", "/ajuda"].some((p) => rota === p || rota.startsWith(p + "/"));
 }

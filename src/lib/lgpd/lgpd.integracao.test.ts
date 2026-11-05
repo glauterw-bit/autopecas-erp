@@ -11,6 +11,7 @@ import { excluirDadosDaEmpresa } from "./excluir-empresa";
 import { aceitePendente, registrarAceite } from "../legal/aceite";
 import { TERMOS_VERSAO } from "../legal/versao";
 import { ApiError } from "../auth/guard";
+import { criarEmpresaComAdmin } from "../empresas/criar-empresa";
 
 const URL = process.env.LGPD_TEST_DATABASE_URL;
 
@@ -26,9 +27,11 @@ async function lerZip(db: PrismaClient, empresaId: string): Promise<Record<strin
     const comp = zip.readUInt32LE(p + 20);
     const nomeLen = zip.readUInt16LE(p + 28);
     const local = zip.readUInt32LE(p + 42);
+    const extraLocal = zip.readUInt16LE(local + 28);
+    const ini = local + 30 + nomeLen + extraLocal;
     const nome = zip.subarray(p + 46, p + 46 + nomeLen).toString("utf8");
-    out[nome] = inflateRawSync(zip.subarray(local + 30 + nomeLen, local + 30 + nomeLen + comp)).toString("utf8");
-    p += 46 + nomeLen;
+    out[nome] = inflateRawSync(zip.subarray(ini, ini + comp)).toString("utf8");
+    p += 46 + nomeLen + zip.readUInt16LE(p + 30) + zip.readUInt16LE(p + 32);
   }
   return out;
 }
@@ -42,11 +45,13 @@ describe.skipIf(!URL)("LGPD contra o banco", () => {
   const B = { id: "", usuario: "", cliente: "", cnpj: `7${sufixo}`.slice(0, 14) };
 
   async function criarEmpresa(rotulo: string, cnpj: string) {
-    const e = await db.empresa.create({ data: { razaoSocial: `EMPRESA ${rotulo} ${sufixo}`, cnpj, email: `${rotulo}@x.com` } });
-    const u = await db.usuario.create({
-      data: { empresaId: e.id, nome: `Admin ${rotulo}`, email: `${rotulo}-${sufixo}@teste.com`, senhaHash: "x", perfil: "ADMIN" },
+    // Como no mundo real: empresa, filial, depósito, ADMIN e assinatura nascem juntos.
+    const { empresa: e, usuario: u } = await criarEmpresaComAdmin(db, {
+      razaoSocial: `EMPRESA ${rotulo} ${sufixo}`, cnpj, adminNome: `Admin ${rotulo}`,
+      adminEmail: `${rotulo.toLowerCase()}-${sufixo}@teste.com`.toLowerCase(), adminSenha: "senha-de-teste-123", assinatura: { tipo: "TRIAL" },
     });
-    const dep = await db.deposito.create({ data: { empresaId: e.id, nome: `Loja ${rotulo}` } });
+    const dep = await db.deposito.findFirstOrThrow({ where: { empresaId: e.id } });
+    await db.consumoNotasMes.create({ data: { empresaId: e.id, mes: "2026-11", notas: 3 } });
     const prod = await db.produto.create({ data: { empresaId: e.id, sku: `SKU-${rotulo}`, nome: `Peça ${rotulo}` } });
     await db.estoqueDeposito.create({ data: { produtoId: prod.id, depositoId: dep.id, quantidade: 5 } });
     await db.movimentoEstoque.create({ data: { produtoId: prod.id, depositoId: dep.id, tipo: "ENTRADA", quantidade: 5 } });
@@ -127,6 +132,8 @@ describe.skipIf(!URL)("LGPD contra o banco", () => {
       expect(await db.notaFiscal.count({ where: { empresaId: A.id } })).toBe(1);
       const log = await db.logAuditoria.findFirstOrThrow({ where: { acao: "LGPD_ANONIMIZAR_CLIENTE", entidadeId: A.cliente } });
       expect(JSON.stringify(log.dadosAntes)).not.toContain("52998224725");
+      // o log guarda só o id: nem o nome da pessoa
+      expect(JSON.stringify(log)).not.toContain("Cliente A");
       // cliente B intacto
       expect((await db.cliente.findUniqueOrThrow({ where: { id: B.cliente } })).nome).toBe("Cliente B");
       // repetir é inofensivo
@@ -161,6 +168,21 @@ describe.skipIf(!URL)("LGPD contra o banco", () => {
         expect(tudo).not.toContain(marca);
       }
       expect(Object.keys(zip).some((n) => n.includes(`CHAVEA`))).toBe(false);
+    });
+
+    it("lê em lotes por cursor: 4.500 produtos saem completos, sem repetir nem perder", async () => {
+      await db.produto.createMany({
+        data: Array.from({ length: 4500 }, (_, i) => ({ empresaId: B.id, sku: `LOTE-${String(i).padStart(5, "0")}`, nome: `Lote ${i}` })),
+      });
+      try {
+        const zip = await lerZip(db, B.id);
+        const linhas = zip["produtos.csv"].split("\r\n").filter(Boolean);
+        expect(linhas).toHaveLength(1 + 1 + 4500); // cabeçalho + SKU-B + lote
+        expect(new Set(linhas.map((l) => l.split(";")[2])).size).toBe(linhas.length); // sem repetição
+        expect(zip["LEIAME.txt"]).toContain("produtos: 4501");
+      } finally {
+        await db.produto.deleteMany({ where: { empresaId: B.id, sku: { startsWith: "LOTE-" } } });
+      }
     });
 
     it("não exporta hash de senha do portal B2B", async () => {
@@ -201,6 +223,9 @@ describe.skipIf(!URL)("LGPD contra o banco", () => {
       const r = await excluirDadosDaEmpresa(db, B.id, { simular: false });
       expect(r.mantidos.notas_fiscais).toBe(1);
       expect(r.mantidos.lancamentos_contabeis).toBe(1);
+      expect(r.mantidos.assinaturas).toBe(1);
+      expect(r.mantidos.consumo_notas_mes).toBe(1);
+      expect(await db.assinatura.count({ where: { empresaId: B.id } })).toBe(1);
       for (const [nome, n] of [
         ["produtos", await db.produto.count({ where: { empresaId: B.id } })],
         ["clientes", await db.cliente.count({ where: { empresaId: B.id } })],

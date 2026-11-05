@@ -3,6 +3,8 @@ import type { RegimeEmitente } from "../fiscal/st-sp";
 import { ambienteEscolhido, configFocus, servidorPermiteProducao } from "./config-focus";
 import { lerConfigFiscal } from "./config-fiscal";
 import { decifrarOpcional } from "../cripto";
+import { erroCstPadrao } from "./payload";
+import { ehSimples } from "../fiscal/st-sp";
 
 // Checklist de prontidão fiscal
 // =============================
@@ -38,7 +40,7 @@ export interface EmpresaFiscal {
 }
 
 export interface ItemChecklist {
-  id: "certificado" | "ie" | "endereco" | "token" | "serie" | "csc" | "ibsCbs" | "ambiente";
+  id: "certificado" | "cstPadrao" | "ie" | "endereco" | "token" | "serie" | "csc" | "ibsCbs" | "ambiente";
   rotulo: string;
   ok: boolean;
   /** Se não estiver ok, a emissão para. Item ok pode trazer aviso (ex.: certificado vencendo). */
@@ -85,11 +87,15 @@ export function checklistFiscal(
       bloqueia: true,
       detalhe: vencido
         ? `Certificado digital vencido em ${dataBr(ate)}. Renove com a certificadora e envie o novo .pfx; até lá nenhuma nota sai.`
-        : `Válido até ${dataBr(ate)}${cert.origem === "informado" ? " (data informada pela loja)" : ""}.`,
+        : cert.origem === "informado"
+          ? `Informado, não verificado: a loja digitou a validade ${dataBr(ate)}; o sistema não leu o certificado.`
+          : `Válido até ${dataBr(ate)}.`,
       aviso:
         !vencido && dias <= DIAS_AVISO_CERTIFICADO
           ? `O certificado vence em ${dias <= 0 ? "menos de 1 dia" : `${dias} dia(s)`} (${dataBr(ate)}). Renove antes para a emissão não parar.`
-          : undefined,
+          : !vencido && cert.origem === "informado"
+            ? "A validade foi informada à mão e não foi verificada. Se o certificado da Focus estiver vencido, a SEFAZ vai recusar a nota."
+            : undefined,
     });
   }
 
@@ -196,6 +202,18 @@ export function checklistFiscal(
         ? "IBS/CBS: informe o CST e o cClassTrib padrão da empresa (peça ao contador). A nota já precisa do grupo IBS/CBS."
         : "IBS/CBS: preencha com o contador. Para o Simples passa a ser obrigatório em 01/01/2027.",
   });
+
+  // CST/CSOSN padrão salvo antes da regra nova (só aparece se estiver inválido)
+  const erroPadrao = erroCstPadrao(ehSimples(regime), c.cstIcmsPadrao);
+  if (erroPadrao) {
+    itens.push({
+      id: "cstPadrao",
+      rotulo: "CST/CSOSN padrão da empresa",
+      ok: false,
+      bloqueia: true,
+      detalhe: `CST/CSOSN padrão: ${erroPadrao} Corrija em Configurações > Fiscal.`,
+    });
+  }
 
   // Ambiente (informativo)
   const escolhido = ambienteEscolhido(empresa.configuracoes);

@@ -2,31 +2,49 @@
 // Toda leitura filtra por empresaId, direto ou pelo produto/venda/depósito
 // dono do registro. Campos secretos nunca saem (hash de senha do portal B2B).
 import type { PrismaClient } from "@prisma/client";
-import { linhasParaCsv } from "./csv";
+import { celulaCsv } from "./csv";
 import type { EntradaZip } from "./zip";
 
-const LOTE = 1000;
+const LOTE = 2000;
 const SEGREDOS = ["senhaHashB2B", "totpSecret", "senhaHash"] as const;
 
 type Linha = Record<string, unknown> & { id: string };
 type Leitor = (args: { take: number; skip: number; cursor?: { id: string } }) => Promise<unknown[]>;
 
-async function lerTudo(ler: Leitor): Promise<Linha[]> {
-  const todas: Linha[] = [];
+/** Lê a tabela em lotes por cursor de id: nunca mais que LOTE linhas na memória. */
+async function* lotes(ler: Leitor): AsyncGenerator<Linha[]> {
   let cursor: string | undefined;
   for (;;) {
-    const lote = (await ler({
-      take: LOTE,
-      skip: cursor ? 1 : 0,
-      cursor: cursor ? { id: cursor } : undefined,
-    })) as Linha[];
-    todas.push(...lote);
-    if (lote.length < LOTE) return todas;
+    const lote = (await ler({ take: LOTE, skip: cursor ? 1 : 0, cursor: cursor ? { id: cursor } : undefined })) as Linha[];
+    if (lote.length) yield lote;
+    if (lote.length < LOTE) return;
     cursor = lote[lote.length - 1].id;
   }
 }
 
 export type ContagemExportacao = Record<string, number>;
+
+/** CSV em pedaços (um por lote). As colunas saem do primeiro registro, como em linhasParaCsv. */
+async function* csvEmLotes(
+  nome: string,
+  ler: Leitor,
+  contagem: ContagemExportacao,
+  ajustar: (l: Linha) => Linha = (l) => l,
+): AsyncGenerator<string> {
+  let n = 0;
+  let colunas: string[] | null = null;
+  for await (const lote of lotes(ler)) {
+    const linhas = lote.map(ajustar);
+    if (!colunas) {
+      colunas = Object.keys(linhas[0]).filter((c) => !(SEGREDOS as readonly string[]).includes(c));
+      yield "\uFEFF" + colunas.join(";") + "\r\n";
+    }
+    yield linhas.map((l) => colunas!.map((c) => celulaCsv(l[c])).join(";")).join("\r\n") + "\r\n";
+    n += linhas.length;
+  }
+  if (!colunas) yield "\uFEFF\r\n";
+  contagem[nome] = n;
+}
 
 /** Gera as entradas do ZIP. `contagem` é preenchida enquanto lê (vai no LEIAME). */
 export async function* entradasExportacao(
@@ -36,58 +54,43 @@ export async function* entradasExportacao(
   agora = new Date(),
 ): AsyncGenerator<EntradaZip> {
   const base = { orderBy: { id: "asc" as const } };
-  const csv = async (nome: string, linhas: Linha[]): Promise<EntradaZip> => {
-    contagem[nome] = linhas.length;
-    return { nome: `${nome}.csv`, conteudo: linhasParaCsv(linhas, { omitir: SEGREDOS }) };
-  };
+  const csv = (nome: string, ler: Leitor, ajustar?: (l: Linha) => Linha): EntradaZip => ({
+    nome: `${nome}.csv`,
+    conteudo: csvEmLotes(nome, ler, contagem, ajustar),
+  });
 
-  yield csv("produtos", await lerTudo((a) => db.produto.findMany({ ...base, ...a, where: { empresaId } })));
+  yield csv("produtos", (a) => db.produto.findMany({ ...base, ...a, where: { empresaId } }));
   yield csv(
     "aplicacoes-veiculares",
-    await lerTudo((a) =>
+    (a) =>
       db.aplicacaoVeicular.findMany({
         ...base,
         ...a,
         where: { produto: { empresaId } },
         include: { produto: { select: { sku: true } } },
       }),
-    ).then((ls) => ls.map(({ produto, ...r }) => ({ ...r, sku: (produto as { sku: string }).sku }) as Linha)),
+    ({ produto, ...r }) => ({ ...r, sku: (produto as { sku: string }).sku }) as Linha,
   );
   yield csv(
     "estoque",
-    await lerTudo((a) =>
+    (a) =>
       db.estoqueDeposito.findMany({
         ...base,
         ...a,
         where: { produto: { empresaId }, deposito: { empresaId } },
         include: { produto: { select: { sku: true } }, deposito: { select: { nome: true } } },
       }),
-    ).then((ls) =>
-      ls.map(({ produto, deposito, ...r }) => ({
-        ...r,
-        sku: (produto as { sku: string }).sku,
-        deposito: (deposito as { nome: string }).nome,
-      })) as Linha[],
-    ),
+    ({ produto, deposito, ...r }) =>
+      ({ ...r, sku: (produto as { sku: string }).sku, deposito: (deposito as { nome: string }).nome }) as Linha,
   );
-  yield csv("clientes", await lerTudo((a) => db.cliente.findMany({ ...base, ...a, where: { empresaId } })));
-  yield csv("fornecedores", await lerTudo((a) => db.fornecedor.findMany({ ...base, ...a, where: { empresaId } })));
-  yield csv("vendas", await lerTudo((a) => db.venda.findMany({ ...base, ...a, where: { empresaId } })));
-  yield csv(
-    "itens-de-venda",
-    await lerTudo((a) => db.itemVenda.findMany({ ...base, ...a, where: { venda: { empresaId } } })),
-  );
-  yield csv("contas-a-receber", await lerTudo((a) => db.contaReceber.findMany({ ...base, ...a, where: { empresaId } })));
-  yield csv("contas-a-pagar", await lerTudo((a) => db.contaPagar.findMany({ ...base, ...a, where: { empresaId } })));
-  yield csv(
-    "kardex",
-    await lerTudo((a) =>
-      db.movimentoEstoque.findMany({
-        ...base,
-        ...a,
-        where: { produto: { empresaId }, deposito: { empresaId } },
-      }),
-    ),
+  yield csv("clientes", (a) => db.cliente.findMany({ ...base, ...a, where: { empresaId } }));
+  yield csv("fornecedores", (a) => db.fornecedor.findMany({ ...base, ...a, where: { empresaId } }));
+  yield csv("vendas", (a) => db.venda.findMany({ ...base, ...a, where: { empresaId } }));
+  yield csv("itens-de-venda", (a) => db.itemVenda.findMany({ ...base, ...a, where: { venda: { empresaId } } }));
+  yield csv("contas-a-receber", (a) => db.contaReceber.findMany({ ...base, ...a, where: { empresaId } }));
+  yield csv("contas-a-pagar", (a) => db.contaPagar.findMany({ ...base, ...a, where: { empresaId } }));
+  yield csv("kardex", (a) =>
+    db.movimentoEstoque.findMany({ ...base, ...a, where: { produto: { empresaId }, deposito: { empresaId } } }),
   );
 
   // XMLs gravados no sistema (autorizados e de cancelamento), um arquivo por nota.

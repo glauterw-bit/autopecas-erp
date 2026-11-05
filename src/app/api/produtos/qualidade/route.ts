@@ -1,3 +1,4 @@
+import { limparTermoBusca } from "@/lib/catalogo/busca-normalizar";
 import { NextResponse } from "next/server";
 import { comAuth } from "@/lib/auth/guard";
 import { carregarQualidadeCadastro, filtrarPorProblema } from "@/lib/crm/consultas";
@@ -7,7 +8,7 @@ import { carregarQualidadeCadastro, filtrarPorProblema } from "@/lib/crm/consult
 //     &q=texto (SKU, nome ou código)
 export const GET = comAuth("ESTOQUISTA", async (req, _ctx, usuario) => {
   const problema = req.nextUrl.searchParams.get("problema");
-  const q = req.nextUrl.searchParams.get("q")?.trim().toUpperCase();
+  const q = limparTermoBusca(req.nextUrl.searchParams.get("q")).toUpperCase();
   const { resumo, linhas } = await carregarQualidadeCadastro(usuario.empresaId);
   let lista = filtrarPorProblema(linhas, problema);
   if (q) {

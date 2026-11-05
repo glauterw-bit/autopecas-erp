@@ -4,24 +4,60 @@ import { ApiError } from "../auth/guard";
 import { registrarAuditoria } from "../auth/auditoria";
 import { DIA_MS, suspensaoMinDias, type StatusAssinatura } from "./estado";
 
-// Painel do dono do SaaS (/admin-saas). O acesso NÃO vem do perfil da loja:
-// só os e-mails da env SAAS_ADMIN_EMAILS (separados por vírgula).
+// Painel do dono do SaaS (/admin-saas). O acesso NÃO vem do perfil da loja nem do e-mail
+// (e-mail de cadastro ninguém confirma, então não serve de chave). Vale só quem:
+//   1. tem o id de usuário na env SAAS_ADMIN_USER_IDS (separados por vírgula); e
+//   2. tem a verificação em duas etapas (2FA) ligada.
+// SAAS_ADMIN_EMAILS foi REMOVIDA de propósito (decisão da revisão R5): é ignorada.
 
-export function emailsAdminSaas(env: Record<string, string | undefined> = process.env): string[] {
-  return (env.SAAS_ADMIN_EMAILS ?? "")
+export function idsAdminSaas(env: Record<string, string | undefined> = process.env): string[] {
+  return (env.SAAS_ADMIN_USER_IDS ?? "")
     .split(",")
-    .map((e) => e.trim().toLowerCase())
+    .map((e) => e.trim())
     .filter(Boolean);
 }
 
-export function ehAdminSaas(email: string | null | undefined, env: Record<string, string | undefined> = process.env): boolean {
-  if (!email) return false;
-  return emailsAdminSaas(env).includes(email.trim().toLowerCase());
+export type AdminSaasUsuario = { id: string };
+type DbLeitura = Pick<PrismaClient, "usuario">;
+
+/** Decide o acesso: null = liberado; senão o motivo (para log). */
+export async function negarAdminSaas(
+  usuario: AdminSaasUsuario,
+  db: DbLeitura = prisma,
+  env: Record<string, string | undefined> = process.env,
+): Promise<null | "FORA_DA_LISTA" | "SEM_2FA"> {
+  if (!idsAdminSaas(env).includes(usuario.id)) return "FORA_DA_LISTA";
+  const u = await db.usuario.findUnique({ where: { id: usuario.id }, select: { totpSecret: true, ativo: true } });
+  if (!u || !u.ativo || !u.totpSecret) return "SEM_2FA";
+  return null;
 }
 
-export function exigirAdminSaas(email: string | null | undefined): void {
+export async function exigirAdminSaas(usuario: AdminSaasUsuario, db: DbLeitura = prisma, env: Record<string, string | undefined> = process.env): Promise<void> {
   // 404 de propósito: quem não é o dono nem fica sabendo que o painel existe.
-  if (!ehAdminSaas(email)) throw new ApiError(404, "Não encontrado");
+  const motivo = await negarAdminSaas(usuario, db, env);
+  if (motivo === "SEM_2FA") {
+    console.warn(`[admin-saas] AVISO: usuário ${usuario.id} está na lista do painel, mas sem 2FA ligado. Acesso negado. Ligue em Configurações > Segurança.`);
+  }
+  if (motivo) throw new ApiError(404, "Não encontrado");
+}
+
+/** Avisos de configuração para o health detalhado e o boot: lista vazia ou id que não existe. */
+export async function avisosAdminSaas(db: DbLeitura = prisma, env: Record<string, string | undefined> = process.env): Promise<string[]> {
+  const ids = idsAdminSaas(env);
+  const avisos: string[] = [];
+  if (env.SAAS_ADMIN_EMAILS) avisos.push("SAAS_ADMIN_EMAILS não vale mais; use SAAS_ADMIN_USER_IDS (veja docs/OPERACAO.md).");
+  if (ids.length === 0) {
+    avisos.push("SAAS_ADMIN_USER_IDS está vazia: ninguém acessa o painel /admin-saas.");
+    return avisos;
+  }
+  const achados = await db.usuario.findMany({ where: { id: { in: ids } }, select: { id: true, totpSecret: true } });
+  const mapa = new Map(achados.map((u) => [u.id, u]));
+  for (const id of ids) {
+    const u = mapa.get(id);
+    if (!u) avisos.push(`SAAS_ADMIN_USER_IDS tem um id que não existe (${id}).`);
+    else if (!u.totpSecret) avisos.push(`O usuário ${id} da lista do painel está sem 2FA e por isso não consegue entrar.`);
+  }
+  return avisos;
 }
 
 type ParaMrr = {

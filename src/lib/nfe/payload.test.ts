@@ -424,3 +424,40 @@ describe("CST/CSOSN padrão da empresa (Configurações > Fiscal)", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe("CST/CSOSN padrão restrito (revisão R5)", () => {
+  const normalComPadrao = (cst: string, item: Partial<ItemEntradaNota> = {}) =>
+    nfeNormal({
+      emitente: { cnpj: CNPJ, inscricaoEstadual: "123456789012", uf: "SP", regime: "LUCRO_PRESUMIDO", config: { cstIcmsPadrao: cst, ibsCbs: { cst: "000", cClassTrib: "000001" } } },
+      itens: [{ ...pastilha, quantidade: "1", valorUnitario: "150", descontoCentavos: 0, cstIcms: null, ...item }],
+      freteCentavos: 0,
+      pagamentos: [{ forma: "BOLETO", valorCentavos: 15000 }],
+    });
+  it("golden regime normal: padrão 00, 1 x R$ 150,00, ICMS 18% = 2700 centavos", () => {
+    const r = montarNota(normalComPadrao("00"));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.itens[0].cstIcms).toBe("00");
+    expect(r.totais.icmsCentavos).toBe(2700);
+    expect(r.totais.produtosCentavos).toBe(15000);
+  });
+  it.each(["40", "41", "60"])("regime normal recusa padrão %s", (cst) => {
+    const r = montarNota(normalComPadrao(cst));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.erros.join(" ")).toContain("Isenção, não tributação e ST precisam estar no cadastro de cada produto");
+  });
+  it.each(["300", "400", "500"])("Simples recusa padrão %s", (cst) => {
+    const r = montarNota(nfceSimples({ emitente: { cnpj: CNPJ, inscricaoEstadual: "123456789012", uf: "SP", regime: "SIMPLES_NACIONAL", config: { cstIcmsPadrao: cst } } }, { cstIcms: null }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.erros.join(" ")).toContain("Isenção, não tributação e ST");
+  });
+  it("produto sem CST com CFOP de ST bloqueia em vez de aplicar o padrão", () => {
+    const r = montarNota(nfceSimples({ emitente: { cnpj: CNPJ, inscricaoEstadual: "123456789012", uf: "SP", regime: "SIMPLES_NACIONAL", config: { cstIcmsPadrao: "102" } } }, { cstIcms: null, cfopInterna: "5405" }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.erros.join(" ")).toContain("substituição tributária");
+  });
+  it("produto COM CST próprio de ST continua passando por 500 no Simples (cadastro manda)", () => {
+    const r = montarNota(nfceSimples({}, { cstIcms: "500", cfopInterna: "5405" }));
+    expect(r.ok ? [] : r.erros.filter((e) => e.includes("padrão"))).toEqual([]);
+  });
+});

@@ -1,3 +1,4 @@
+import { limparTermoBusca } from "@/lib/catalogo/busca-normalizar";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -34,7 +35,7 @@ const clienteSchema = z.object({
 
 export const GET = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
   const empresaId = usuario.empresaId;
-  const q = req.nextUrl.searchParams.get("q");
+  const q = limparTermoBusca(req.nextUrl.searchParams.get("q"));
   const clientes = await prisma.cliente.findMany({
     where: {
       empresaId,

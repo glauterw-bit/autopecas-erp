@@ -104,3 +104,22 @@ describe("checklist de prontidão fiscal", () => {
     expect(item.detalhe).toBe("Endereço fiscal: falta bairro, CEP.");
   });
 });
+
+describe("revisão R5: padrão salvo inválido e validade informada", () => {
+  it("padrão antigo inválido: o checklist acusa e a mensagem aponta a tela", () => {
+    const e = empresaPronta({}, { cstIcmsPadrao: "60" });
+    expect(ids(e, "55")).toEqual(["cstPadrao"]);
+    const msg = mensagemBloqueio(checklistFiscal(e, { agora: AGORA, env: ENV, modelo: "55" }));
+    expect(msg).toContain("Configurações > Fiscal");
+    expect(msg).toContain("Isenção, não tributação e ST");
+    expect(ids(empresaPronta({}, { cstIcmsPadrao: "00" }), "55")).toEqual([]);
+  });
+  it("validade informada à mão: segue liberado, mas aparece como informado, não verificado", () => {
+    const e = empresaPronta({}, { certificado: { validoAte: "2027-06-30T23:59:59.000Z", origem: "informado", atualizadoEm: "2026-11-01T00:00:00.000Z" } });
+    expect(ids(e, "65")).toEqual([]);
+    const item = checklistFiscal(e, { agora: AGORA, env: ENV, modelo: "65" }).find((i) => i.id === "certificado")!;
+    expect(item.ok).toBe(true);
+    expect(item.detalhe).toContain("Informado, não verificado");
+    expect(item.aviso).toContain("não foi verificada");
+  });
+});

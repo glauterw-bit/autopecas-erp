@@ -317,6 +317,53 @@ describe.skipIf(!URL_DB)("assinatura contra o banco", () => {
       await db.plano.update({ where: { codigo: "COMPLETO" }, data: { precoMensal: 0, provisorio: true } });
     });
 
+    it("cancelar -> reativar -> cancelar -> reativar não dá uso grátis novo: a dívida antiga não zera", async () => {
+      const { escolherPlano, cancelarAssinatura } = await import("./servico");
+      const { calcularAcesso } = await import("./estado");
+      await db.plano.update({ where: { codigo: "COMPLETO" }, data: { precoMensal: 99, provisorio: false } });
+      const ator = { id: ids.user, empresaId: ids.emp };
+      const escolha = { planoCodigo: "COMPLETO", ciclo: "MENSAL", forma: "PIX" } as const;
+      const desde = new Date(Date.now() - 25 * DIA_MS);
+      await ajustar({ status: "INADIMPLENTE", inadimplenteDesde: desde, asaasAssinaturaId: "sub_velha", asaasClienteId: "cus_x" });
+
+      await cancelarAssinatura(ator);
+      expect((await estado()).inadimplenteDesde?.getTime()).toBe(desde.getTime());
+      await escolherPlano(ator, escolha);
+      let a = await estado();
+      expect(a.status).toBe("INADIMPLENTE");
+      expect(a.inadimplenteDesde?.getTime()).toBe(desde.getTime()); // data original, não "agora"
+      expect(calcularAcesso(a).modo).toBe("SOMENTE_LEITURA"); // direto para somente leitura até pagar
+
+      await cancelarAssinatura(ator);
+      await escolherPlano(ator, escolha);
+      a = await estado();
+      expect(a.inadimplenteDesde?.getTime()).toBe(desde.getTime());
+      expect(calcularAcesso(a).modo).toBe("SOMENTE_LEITURA");
+
+      // Quem nunca teve dívida ganha a carência normal uma vez só, e ela não se renova.
+      await ajustar({ status: "ATIVA", inadimplenteDesde: null, canceladaEm: null });
+      await cancelarAssinatura(ator);
+      await escolherPlano(ator, escolha);
+      const primeira = (await estado()).inadimplenteDesde;
+      expect(primeira).not.toBeNull();
+      await ajustar({ inadimplenteDesde: new Date(Date.now() - 3 * DIA_MS) });
+      const fixada = (await estado()).inadimplenteDesde!.getTime();
+      await cancelarAssinatura(ator);
+      await escolherPlano(ator, escolha);
+      expect((await estado()).inadimplenteDesde!.getTime()).toBe(fixada);
+      await db.plano.update({ where: { codigo: "COMPLETO" }, data: { precoMensal: 0, provisorio: true } });
+    });
+
+    it("quem já está ATIVA e só troca de plano mantém o vencimento", async () => {
+      const { escolherPlano } = await import("./servico");
+      await db.plano.update({ where: { codigo: "COMPLETO" }, data: { precoMensal: 99, provisorio: false } });
+      const venc = new Date("2026-12-15T12:00:00Z");
+      await ajustar({ status: "ATIVA", proximoVencimento: venc, asaasAssinaturaId: "sub_novo", asaasClienteId: "cus_novo", canceladaEm: null });
+      await escolherPlano({ id: ids.user, empresaId: ids.emp }, { planoCodigo: "COMPLETO", ciclo: "ANUAL", forma: "PIX" }).catch(() => undefined);
+      expect((await estado()).proximoVencimento?.getTime()).toBe(venc.getTime());
+      await db.plano.update({ where: { codigo: "COMPLETO" }, data: { precoMensal: 0, provisorio: true } });
+    });
+
     it("o módulo asaas recusa falar com a API real fora de produção", async () => {
       const antes = process.env.ASAAS_API_URL;
       process.env.ASAAS_API_URL = "https://api.asaas.com/v3";
@@ -346,17 +393,33 @@ describe.skipIf(!URL_DB)("assinatura contra o banco", () => {
       expect(acoes).toEqual(expect.arrayContaining(["SAAS_TRIAL_ESTENDIDO", "SAAS_PLANO_ALTERADO", "SAAS_LOJA_SUSPENSA", "SAAS_LOJA_REATIVADA"]));
     });
 
-    it("quem não está em SAAS_ADMIN_EMAILS recebe 404 na API", async () => {
-      process.env.SAAS_ADMIN_EMAILS = "dono@saas.com";
+    it("só entra quem está em SAAS_ADMIN_USER_IDS e tem 2FA; e-mail na lista antiga não vale", async () => {
       const { GET } = await import("@/app/api/admin-saas/route");
-      const r = await GET(new NextRequest("http://x/api/admin-saas"), undefined);
-      expect(r.status).toBe(404);
-      sessao.usuario = { ...sessao.usuario!, email: "dono@saas.com" };
-      const ok = await GET(new NextRequest("http://x/api/admin-saas"), undefined);
+      const chamar = () => GET(new NextRequest("http://x/api/admin-saas"), undefined);
+      const emailAdmin = `admin${sufixo}@teste.com`;
+      process.env.SAAS_ADMIN_EMAILS = emailAdmin; // compatibilidade removida: não pode liberar
+      process.env.SAAS_ADMIN_USER_IDS = "";
+      expect((await chamar()).status).toBe(404);
+      process.env.SAAS_ADMIN_USER_IDS = "outro-id";
+      expect((await chamar()).status).toBe(404);
+      process.env.SAAS_ADMIN_USER_IDS = ids.user;
+      const aviso = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      await db.usuario.update({ where: { id: ids.user }, data: { totpSecret: null } });
+      expect((await chamar()).status).toBe(404); // na lista, mas sem 2FA
+      expect(aviso).toHaveBeenCalledWith(expect.stringContaining("sem 2FA"));
+      aviso.mockRestore();
+      await db.usuario.update({ where: { id: ids.user }, data: { totpSecret: "JBSWY3DPEHPK3PXP" } });
+      const ok = await chamar();
       expect(ok.status).toBe(200);
       const j = await ok.json();
       expect(Array.isArray(j.lojas)).toBe(true);
       expect(typeof j.mrrCentavos).toBe("number");
+      const { avisosAdminSaas } = await import("./admin-saas");
+      expect(await avisosAdminSaas(db, { SAAS_ADMIN_USER_IDS: `${ids.user},nao-existe` })).toEqual([expect.stringContaining("nao-existe")]);
+      expect(await avisosAdminSaas(db, {})).toEqual([expect.stringContaining("vazia")]);
+      await db.usuario.update({ where: { id: ids.user }, data: { totpSecret: null } });
+      delete process.env.SAAS_ADMIN_USER_IDS;
+      delete process.env.SAAS_ADMIN_EMAILS;
     });
   });
 });
