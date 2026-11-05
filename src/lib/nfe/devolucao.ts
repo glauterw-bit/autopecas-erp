@@ -220,6 +220,26 @@ export async function emitirNotaDevolucao(opts: {
     });
   }
 
+  // Clique duplo: se já existe devolução desta venda ainda EMITINDO com os
+  // mesmos itens e quantidades, devolve essa nota em vez de recusar por falta
+  // de saldo (a 1ª chamada já reservou). Só EMITINDO: depois de autorizada,
+  // um novo pedido com saldo restante é uma devolução nova e legítima.
+  const chavePedido = (xs: Array<{ itemVendaId: string; quantidade: number | string }>) =>
+    xs
+      .map((x) => `${x.itemVendaId}:${Math.round(Number(x.quantidade) * 1000)}`)
+      .sort()
+      .join("|");
+  const emVoo = await prisma.notaFiscal.findMany({
+    where: { empresaId: venda.empresaId, finalidade: 4, status: "EMITINDO", chaveReferenciada: original.chaveAcesso },
+  });
+  const alvo = chavePedido(pedidos);
+  const mesma = emVoo.find(
+    (n) =>
+      Array.isArray(n.devolucaoItens) &&
+      chavePedido(n.devolucaoItens as Array<{ itemVendaId: string; quantidade: number }>) === alvo,
+  );
+  if (mesma) return mesma;
+
   const { itens, erros } = montarItensDevolucao({
     chaveOriginal: original.chaveAcesso,
     xmlOriginal: original.xmlAutorizado,

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/sessao";
 import { podePerfil } from "@/lib/auth/config";
@@ -7,6 +8,7 @@ import { FormNovoProduto } from "./form";
 export const dynamic = "force-dynamic";
 
 export default async function NovoProdutoPage() {
+  await exigirPerfilPagina("/produtos/novo");
   const u = await usuarioAtual();
   // Mesma regra da API (POST /api/produtos): estoquista ou acima.
   if (!podePerfil(u.perfil, "ESTOQUISTA")) {

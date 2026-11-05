@@ -132,8 +132,15 @@ describe.skipIf(!URL)("devolução contra o banco", () => {
     const notas = await db.notaFiscal.findMany({ where: { empresaId: ids.A, refProvedor: n1.refProvedor } });
     expect(notas).toHaveLength(1);
     expect(notas[0]).toMatchObject({ status: "EMITINDO", finalidade: 4, devolucaoItens: [{ itemVendaId: item.id, quantidade: 2 }] });
-    // nova tentativa depois: não há saldo, nada novo
-    await expect(devolucao.emitirNotaDevolucao(pedido)).rejects.toMatchObject({ status: 422 });
+    // nova tentativa com a nota ainda EMITINDO: devolve a mesma nota, sem nova chamada à Focus
+    const n3 = await devolucao.emitirNotaDevolucao(pedido);
+    expect(n3.id).toBe(n1.id);
+    expect(http.post).toHaveBeenCalledTimes(1);
+    expect(await devolvidoNota(item.id)).toBe(2);
+    // pedido diferente (1 unidade) sem saldo restante: recusado
+    await expect(
+      devolucao.emitirNotaDevolucao({ ...pedido, itens: [{ itemVendaId: item.id, quantidade: 1 }] }),
+    ).rejects.toMatchObject({ status: 422 });
   });
 
   it("dois pedidos diferentes ao mesmo tempo (1 e 2 de 2): nunca passa de 2", async () => {
