@@ -69,6 +69,8 @@ model Empresa {
   retornosVenda        RetornoVenda[]
   inventarios          Inventario[]
   lancamentosContabeis LancamentoContabil[]
+  importacoesLote      ImportacaoLote[]
+  importacoesChave     ImportacaoChave[]
 
   @@map("empresas")
 }
@@ -1983,4 +1985,46 @@ model PixRecorrencia {
 
   @@index([empresaId])
   @@map("pix_recorrencias")
+}
+
+// =========================================================================
+// IMPLANTAÇÃO (migração de dados de outro sistema)
+// =========================================================================
+
+// Cada execução do importador (simulação ou aplicação) vira um lote, com o
+// relatório de conferência guardado em `resumo`.
+model ImportacaoLote {
+  id          String   @id @default(cuid())
+  empresaId   String
+  empresa     Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  usuarioId   String?
+  entidade    String // PRODUTO, ESTOQUE, PRECO, CLIENTE, FORNECEDOR, CONTA_RECEBER
+  origem      String // CSV, RADAR
+  arquivoNome String?
+  simulacao   Boolean  @default(true)
+  status      String // SIMULADO, APLICADO, ERRO
+  resumo      Json?
+  criadoEm    DateTime @default(now())
+
+  @@index([empresaId, criadoEm])
+  @@map("importacao_lotes")
+}
+
+// Chave do sistema de origem → registro criado aqui. É o que faz a importação
+// ser idempotente para quem não tem chave natural única (cliente sem CPF,
+// título a receber) e permite saber o que veio de onde.
+model ImportacaoChave {
+  id           String   @id @default(cuid())
+  empresaId    String
+  empresa      Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  entidade     String
+  chave        String
+  entidadeId   String
+  loteId       String?
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([empresaId, entidade, chave])
+  @@index([entidade, entidadeId])
+  @@map("importacao_chaves")
 }
