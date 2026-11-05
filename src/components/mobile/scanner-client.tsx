@@ -30,6 +30,7 @@ export function ScannerClient() {
   const [codigoLido, setCodigoLido] = useState<string | null>(null);
   const [produto, setProduto] = useState<ProdutoEncontrado | null>(null);
   const [carregando, setCarregando] = useState(false);
+  const [erroBusca, setErroBusca] = useState<string | null>(null);
 
   useEffect(() => {
     type WindowExtra = typeof window & { BarcodeDetector?: BarcodeDetectorPolyfill };
@@ -86,9 +87,15 @@ export function ScannerClient() {
   async function buscar(codigo: string) {
     setCarregando(true);
     try {
+      setErroBusca(null);
       const r = await fetch(`/api/produtos/buscar-pdv?q=${encodeURIComponent(codigo)}`);
+      if (!r.ok) throw new Error("Não foi possível buscar agora. Confira a conexão e tente de novo.");
       const lista = (await r.json()) as ProdutoEncontrado[];
       setProduto(lista[0] ?? null);
+      if (!lista[0]) setErroBusca("Nenhuma peça com esse código.");
+    } catch (e) {
+      setProduto(null);
+      setErroBusca((e as Error).message);
     } finally {
       setCarregando(false);
     }
@@ -132,6 +139,11 @@ export function ScannerClient() {
           </div>
         )}
         {carregando && <p className="text-sm text-muted-foreground">Buscando...</p>}
+        {erroBusca && !carregando && (
+          <p role="alert" className="text-sm text-destructive">
+            {erroBusca}
+          </p>
+        )}
         {produto && (
           <div className="rounded-xl border bg-card p-4">
             <div className="text-xs text-muted-foreground">SKU {produto.sku}</div>
@@ -145,16 +157,10 @@ export function ScannerClient() {
               <div className="text-right">
                 <div className="text-xs text-muted-foreground">Preço</div>
                 <div className="text-2xl font-bold">
-                  R$ {produto.precoVenda.toFixed(2)}
+                  {produto.precoVenda.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                 </div>
               </div>
             </div>
-            <button
-              className="mt-3 h-12 w-full rounded-md bg-accent font-medium text-white"
-              onClick={() => alert("Adicionado ao orçamento (offline ok)")}
-            >
-              Adicionar ao orçamento
-            </button>
           </div>
         )}
 
@@ -170,8 +176,9 @@ export function ScannerClient() {
             }
           }}
         >
-          <label className="text-xs text-muted-foreground">Digitar código:</label>
+          <label htmlFor="scanner-codigo" className="text-xs text-muted-foreground">Digitar código:</label>
           <input
+            id="scanner-codigo"
             name="codigo"
             placeholder="SKU, EAN ou OEM"
             className="mt-1 h-12 w-full rounded-md border bg-background px-3 text-base"

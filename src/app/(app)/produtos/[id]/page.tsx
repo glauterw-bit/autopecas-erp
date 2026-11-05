@@ -2,24 +2,28 @@ import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { usuarioAtual } from "@/lib/sessao";
+import { podePerfil } from "@/lib/auth/config";
 import { Badge } from "@/components/ui/badge";
 import { problemasDoProduto, ROTULO_PROBLEMA } from "@/lib/crm/qualidade-cadastro";
 import { formatDateTime } from "@/lib/utils";
 import { EditorCadastro } from "./editor";
+import { AplicacoesProduto } from "./aplicacoes";
 
 export const dynamic = "force-dynamic";
 
 const POSICAO: Record<string, string> = {
   DIANTEIRA: "dianteira",
   TRASEIRA: "traseira",
+  LADO_DIREITO: "lado direito",
+  LADO_ESQUERDO: "lado esquerdo",
 };
 
 export default async function ProdutoPage({ params }: { params: Promise<{ id: string }> }) {
   await exigirPerfilPagina("/produtos");
   const { id } = await params;
-  const empresaId = await empresaAtualId();
+  const u = await usuarioAtual();
+  const empresaId = u.empresaId;
   const p = await prisma.produto.findFirst({
     where: { id, empresaId },
     include: {
@@ -78,42 +82,24 @@ export default async function ProdutoPage({ params }: { params: Promise<{ id: st
           }}
         />
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Aplicações ({p.aplicacoes.length})</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Confira veículo, ano, motor, posição e lado antes de dar o selo de verificada.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <tbody>
-                {p.aplicacoes.map((a) => (
-                  <tr key={a.id} className="border-t">
-                    <td className="px-4 py-2">
-                      <div className="font-medium">
-                        {a.versao.modelo.montadora.nome} {a.versao.modelo.nome} {a.versao.descricao}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {a.versao.anoInicio ?? "?"}–{a.versao.anoFim ?? "atual"}
-                        {a.versao.motor && ` · motor ${a.versao.motor}`}
-                        {a.posicao && ` · ${POSICAO[a.posicao] ?? a.posicao.toLowerCase().replace(/_/g, " ")}`}
-                        {a.observacao && ` · ${a.observacao}`}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {p.aplicacoes.length === 0 && (
-                  <tr>
-                    <td className="px-4 py-8 text-center text-sm text-muted-foreground">
-                      Nenhuma aplicação cadastrada. Sem aplicação, o balcão não acha a peça pelo veículo.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+        <AplicacoesProduto
+          produtoId={p.id}
+          podeEditar={podePerfil(u.perfil, "ESTOQUISTA")}
+          seloAtivo={Boolean(p.aplicacaoVerificadaEm)}
+          aplicacoes={p.aplicacoes.map((a) => ({
+            id: a.id,
+            titulo: `${a.versao.modelo.montadora.nome} ${a.versao.modelo.nome} ${a.versao.descricao}`,
+            detalhe: [
+              `${a.versao.anoInicio ?? "?"}–${a.versao.anoFim ?? "atual"}`,
+              a.versao.motor && `motor ${a.versao.motor}`,
+              a.posicao && (POSICAO[a.posicao] ?? a.posicao.toLowerCase().replace(/_/g, " ")),
+              a.quantidadePorVeiculo > 1 && `${a.quantidadePorVeiculo} por veículo`,
+              a.observacao,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          }))}
+        />
       </div>
       <p className="text-xs text-muted-foreground">Atualizado em {formatDateTime(p.atualizadoEm)}.</p>
     </div>

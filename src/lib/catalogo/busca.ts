@@ -5,6 +5,7 @@ import {
   escaparLike,
   ordenarPorRelevancia,
   Relevancia,
+  variantesPalavra,
   type Candidato,
   type TermoAnalisado,
 } from "./busca-normalizar";
@@ -205,8 +206,14 @@ async function buscarPorPalavras(empresaId: string, t: TermoAnalisado, quantos: 
   // índice e as demais entram como OR; se nenhuma é, cada uma vira
   // p.id IN (união dos conjuntos), para o Postgres não varrer a tabela.
   // (Medido: cada forma é a mais rápida no seu caso; ver migração.)
-  const porDescricao = (pad: string) =>
-    Prisma.sql`SELECT q.id FROM produtos q WHERE q."empresaId" = ${empresaId} AND busca_texto(q.nome) LIKE ${pad}`;
+  // Palavra mista ("5w30") vira várias formas ("5w-30", "5w 30"): ver variantesPalavra.
+  const likeDescricao = (alias: string, palavra: string) =>
+    Prisma.sql`(${Prisma.join(
+      variantesPalavra(palavra).map((v) => Prisma.sql`busca_texto(${Prisma.raw(alias)}.nome) LIKE ${`%${escaparLike(v)}%`}`),
+      " OR ",
+    )})`;
+  const porDescricao = (palavra: string) =>
+    Prisma.sql`SELECT q.id FROM produtos q WHERE q."empresaId" = ${empresaId} AND ${likeDescricao("q", palavra)}`;
   const porAplicacao = (filtro: Prisma.Sql) => Prisma.sql`
     SELECT a."produtoId" FROM aplicacoes_veiculares a
       JOIN versoes_veiculo v ON v.id = a."versaoId"
@@ -216,14 +223,13 @@ async function buscarPorPalavras(empresaId: string, t: TermoAnalisado, quantos: 
   const simples: Prisma.Sql[] = [];
   const compostas: Prisma.Sql[][] = []; // cada item: conjuntos alternativos de ids
   for (const palavra of t.palavras) {
-    const pad = `%${escaparLike(palavra)}%`;
     const idsMarca = marcas.filter((m) => m.n.includes(palavra)).map((m) => m.id);
     const idsModelo = modelos.filter((m) => m.n.includes(palavra)).map((m) => m.id);
     if (!idsMarca.length && !idsModelo.length) {
-      simples.push(Prisma.sql`busca_texto(p.nome) LIKE ${pad}`);
+      simples.push(likeDescricao("p", palavra));
       continue;
     }
-    const conjuntos: Prisma.Sql[] = [porDescricao(pad)];
+    const conjuntos: Prisma.Sql[] = [porDescricao(palavra)];
     if (idsMarca.length) {
       conjuntos.push(
         Prisma.sql`SELECT q.id FROM produtos q WHERE q."empresaId" = ${empresaId} AND q."marcaId" = ANY(${idsMarca})`,
@@ -237,7 +243,7 @@ async function buscarPorPalavras(empresaId: string, t: TermoAnalisado, quantos: 
     const filtro = todosModelos.length
       ? Prisma.sql`${filtroAno} AND v."modeloId" = ANY(${todosModelos})`
       : filtroAno;
-    compostas.push([porDescricao(`%${ano}%`), porAplicacao(filtro)]);
+    compostas.push([porDescricao(String(ano)), porAplicacao(filtro)]);
   }
   const condicoes: Prisma.Sql[] = [...simples];
   for (const conjuntos of compostas) {

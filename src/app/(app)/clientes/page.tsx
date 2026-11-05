@@ -52,7 +52,6 @@ export default async function ClientesPage() {
                 <th className="px-4 py-3 font-medium">Segmento</th>
                 <th className="px-4 py-3 font-medium">Garagem</th>
                 {algumCredito && <th className="px-4 py-3 text-right font-medium">Crédito</th>}
-                {algumCredito && <th className="px-4 py-3 text-right font-medium">Score IA</th>}
               </tr>
             </thead>
             <tbody>
@@ -85,22 +84,11 @@ export default async function ClientesPage() {
                       {c.podeVerCredito ? formatBRL(Number(c.limiteCredito)) : "—"}
                     </td>
                   )}
-                  {algumCredito && (
-                    <td className="px-4 py-2 text-right">
-                      {c.podeVerCredito && c.scoreCredito ? (
-                        <Badge variant={c.scoreCredito >= 0.7 ? "success" : c.scoreCredito >= 0.4 ? "warning" : "destructive"}>
-                          {(c.scoreCredito * 100).toFixed(0)}
-                        </Badge>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  )}
                 </tr>
               ))}
               {clientes.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={algumCredito ? 5 : 4} className="px-4 py-10 text-center text-muted-foreground">
                     Nenhum cliente cadastrado.
                   </td>
                 </tr>

@@ -40,6 +40,9 @@ async function main() {
       razaoSocial: "AutoPeças Demo LTDA",
       nomeFantasia: "AutoPeças Demo",
       cnpj: "00000000000100",
+      // IE FICTÍCIA de teste (12 dígitos, verificadores de SP conferem). Serve para a venda demo
+      // passar na validação e ir à homologação da Focus. Não é de empresa real; troque na implantação.
+      inscEstadual: "110042490114",
       regimeTributario: "SIMPLES_NACIONAL",
       uf: "SP",
       municipio: "São Paulo",
@@ -163,6 +166,7 @@ async function main() {
   const produtosData = [
     {
       sku: "PF-001",
+      ean: "7899990000014", // EAN-13 de demonstração (prefixo 78999900), dígito conferido
       nome: "Pastilha de Freio Dianteira Onix/Cobalt",
       categoriaId: catFreio.id,
       marcaId: marcas[7].id,
@@ -175,6 +179,7 @@ async function main() {
     },
     {
       sku: "PF-002",
+      ean: "7899990000021", // EAN-13 de demonstração (prefixo 78999900), dígito conferido
       nome: "Pastilha de Freio Dianteira Civic 2007-2016",
       categoriaId: catFreio.id,
       marcaId: marcas[0].id,
@@ -187,6 +192,7 @@ async function main() {
     },
     {
       sku: "OL-005W30",
+      ean: "7899990000038", // EAN-13 de demonstração (prefixo 78999900), dígito conferido
       nome: "Óleo Mobil Super 5W-30 1L Sintético",
       categoriaId: catOleo.id,
       marcaId: marcas[5].id,
@@ -199,6 +205,7 @@ async function main() {
     },
     {
       sku: "FO-100",
+      ean: "7899990000045", // EAN-13 de demonstração (prefixo 78999900), dígito conferido
       nome: "Filtro de Óleo Motor 1.0/1.4 GM/VW",
       categoriaId: catFiltro.id,
       marcaId: marcas[4].id,
@@ -210,6 +217,7 @@ async function main() {
     },
     {
       sku: "VE-NGK-04",
+      ean: "7899990000052", // EAN-13 de demonstração (prefixo 78999900), dígito conferido
       nome: "Jogo de Velas NGK Iridium IX 4 peças",
       categoriaId: catVela.id,
       marcaId: marcas[1].id,
@@ -222,6 +230,7 @@ async function main() {
     },
     {
       sku: "AM-PAR-DI",
+      ean: "7899990000069", // EAN-13 de demonstração (prefixo 78999900), dígito conferido
       nome: "Par de Amortecedores Dianteiros Gol G6/G7",
       categoriaId: catAmort.id,
       marcaId: marcas[2].id,
@@ -234,6 +243,7 @@ async function main() {
     },
     {
       sku: "BAT-60AH",
+      ean: "7899990000076", // EAN-13 de demonstração (prefixo 78999900), dígito conferido
       nome: "Bateria Moura 60Ah Selada 12V",
       categoriaId: catBateria.id,
       marcaId: marcas[6].id,
@@ -263,6 +273,7 @@ async function main() {
         marcaId: p.marcaId,
         codigoOem: (p as { codigoOem?: string }).codigoOem ?? null,
         codigoFabricante: p.codigoFabricante,
+        codigoBarras: p.ean,
         unidade: p.unidade ?? "UN",
         custoMedio: p.custo,
         precoVenda: p.preco,

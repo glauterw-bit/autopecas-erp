@@ -33,7 +33,7 @@ interface Produto {
   localizacao: string | null;
   garantiaMeses: number | null;
   unidade: string;
-  matchTipo: "EXATO" | "APLICACAO" | "TEXTO";
+  matchTipo: "EXATO" | "CODIGO" | "APLICACAO" | "TEXTO";
   aplicacaoVerificada?: boolean;
   revisaoCadastro?: boolean;
 }
@@ -442,6 +442,7 @@ export function PdvClient() {
                         </span>
                       )}
                       {p.matchTipo === "EXATO" && <Badge variant="success">match exato</Badge>}
+                      {p.matchTipo === "CODIGO" && <Badge variant="muted">pelo código</Badge>}
                       {p.matchTipo === "APLICACAO" && <Badge variant="accent">aplicação</Badge>}
                     </div>
                   </div>

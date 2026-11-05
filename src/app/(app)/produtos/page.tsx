@@ -103,7 +103,7 @@ export default async function ProdutosPage() {
               {produtos.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                    Nenhum produto cadastrado ainda. Rode o seed.
+                    Nenhum produto cadastrado ainda. Use "Novo produto" para começar.
                   </td>
                 </tr>
               )}

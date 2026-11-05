@@ -7,6 +7,7 @@ import {
   ordenarPorRelevancia,
   Relevancia,
   relevanciaCodigo,
+  variantesPalavra,
   type Candidato,
 } from "./busca-normalizar";
 
@@ -101,5 +102,31 @@ describe("ordenarPorRelevancia", () => {
   it("no empate mantém a ordem que veio do banco (paginação estável)", () => {
     const r = ordenarPorRelevancia([c("z", Relevancia.TEXTO, 0.5), c("a", Relevancia.TEXTO, 0.5)]);
     expect(r.map((x) => x.id)).toEqual(["z", "a"]);
+  });
+});
+
+describe("variantesPalavra: letra e número com ou sem traço", () => {
+  it("5w30 também casa com 5w-30 e 5w 30", () => {
+    const v = variantesPalavra("5w30");
+    expect(v).toContain("5w30");
+    expect(v).toContain("5w-30");
+    expect(v).toContain("5w 30");
+  });
+  it("5w-30 também casa com 5w30", () => {
+    expect(variantesPalavra("5w-30")).toContain("5w30");
+  });
+  it("palavra sem mistura não muda", () => {
+    expect(variantesPalavra("oleo")).toEqual(["oleo"]);
+    expect(variantesPalavra("1200")).toEqual(["1200"]);
+  });
+  it("símbolos estranhos e palavras com muitas trocas não explodem", () => {
+    expect(variantesPalavra("a/b1")).toEqual(["a/b1"]);
+    expect(variantesPalavra("a1b2c3").length).toBe(1);
+  });
+  it("o caso do balcão: oleo 5w30 acha Óleo Mobil Super 5W-30", () => {
+    const nome = normalizarTexto("Óleo Mobil Super 5W-30");
+    const t = analisarTermo("oleo 5w30");
+    const acha = t.palavras.every((p) => variantesPalavra(p).some((v) => nome.includes(v)));
+    expect(acha).toBe(true);
   });
 });

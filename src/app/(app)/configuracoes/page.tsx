@@ -1,8 +1,8 @@
 import { exigirPerfilPagina } from "@/lib/auth/pagina";
 import Link from "next/link";
-import { Building2, Cpu, FileText, KeyRound, Store, Wrench } from "lucide-react";
+import { ArrowRight, Building2, Cpu, FileText, KeyRound, Store, Wrench } from "lucide-react";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { empresaAtualId, usuarioAtual } from "@/lib/sessao";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { maskCpfCnpj } from "@/lib/utils";
@@ -19,6 +19,7 @@ function statusEnv(v: string | undefined) {
 export default async function ConfiguracoesPage() {
   await exigirPerfilPagina("/configuracoes");
   const empresaId = await empresaAtualId();
+  const { perfil } = await usuarioAtual();
   const empresa = await prisma.empresa.findUnique({ where: { id: empresaId } });
   const [usuarios, depositos, marketplaces] = await Promise.all([
     prisma.usuario.count({ where: { empresaId } }),
@@ -50,10 +51,25 @@ export default async function ConfiguracoesPage() {
         <Link href="/configuracoes/usuarios" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
           Usuários e perfis
         </Link>
-        <Link href="/configuracoes/implantacao" className="rounded-md border bg-card px-3 py-2 font-medium hover:bg-secondary">
-          Implantação
-        </Link>
       </div>
+      {perfil === "ADMIN" && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <div className="font-medium">Implantação</div>
+              <p className="text-sm text-muted-foreground">
+                Traga produtos, clientes e saldos de outro sistema para começar a usar.
+              </p>
+            </div>
+            <Link
+              href="/configuracoes/implantacao"
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Abrir implantação <ArrowRight className="h-4 w-4" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

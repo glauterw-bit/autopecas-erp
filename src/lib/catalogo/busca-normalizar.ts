@@ -53,6 +53,26 @@ export function analisarTermo(termo: string): TermoAnalisado {
   return { bruto, codigo: normalizarCodigo(bruto), texto, palavras, anos };
 }
 
+/**
+ * Formas em que uma palavra mista de letra e número pode estar escrita na
+ * descrição: "5w30" também é "5w-30" ou "5w 30"; "15w40" também é "15w-40".
+ * Sem isso, "oleo 5w30" não achava "Óleo Mobil Super 5W-30". Aceita o termo já
+ * normalizado (minúsculo, sem acento). Limita a 2 trocas de letra/número por
+ * palavra (até 9 formas) para não pesar no banco. Palavra sem mistura volta
+ * como veio.
+ */
+export function variantesPalavra(palavra: string): string[] {
+  const base = palavra.replace(/([a-z])-(\d)/g, "$1$2").replace(/(\d)-([a-z])/g, "$1$2");
+  if (!/^[a-z0-9]+$/.test(base)) return [palavra];
+  const partes = base.match(/\d+|[a-z]+/g) ?? [];
+  if (partes.length < 2 || partes.length > 3) return [palavra];
+  let formas: string[] = [partes[0]!];
+  for (const parte of partes.slice(1)) {
+    formas = formas.flatMap((f) => [f + parte, `${f}-${parte}`, `${f} ${parte}`]);
+  }
+  return [...new Set([palavra, ...formas])];
+}
+
 /** Quanto mais alto, mais relevante. */
 export enum Relevancia {
   TEXTO = 0,
