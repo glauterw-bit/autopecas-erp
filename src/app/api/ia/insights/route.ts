@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { comAuth, ApiError } from "@/lib/auth/guard";
+import { exigirLimiteIA } from "@/lib/ai/limite";
 
 export const GET = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  await exigirLimiteIA("insights", usuario.id);
   const empresaId = usuario.empresaId;
   const tipo = req.nextUrl.searchParams.get("tipo");
   const aberto = req.nextUrl.searchParams.get("aberto") !== "false";
@@ -33,6 +35,7 @@ export const GET = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
 });
 
 export const PATCH = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
+  await exigirLimiteIA("insights", usuario.id);
   const { id, feedback, resolver } = (await req.json()) as {
     id: string;
     feedback?: "UTIL" | "NAO_UTIL" | "INCORRETO";

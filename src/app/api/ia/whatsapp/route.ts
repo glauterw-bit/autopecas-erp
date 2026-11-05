@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { conversarChat } from "@/lib/ai/chat";
+import { ErroIA } from "@/lib/ai/uso";
+import { empresaDoNumeroWhatsapp, mascarar } from "@/lib/ai/whatsapp-empresa";
+import { permitido } from "@/lib/auth/rate-limit";
+import { LIMITES_IA } from "@/lib/ai/limite";
 import { enviarTexto } from "@/lib/marketplaces/whatsapp";
 
 // Webhook do WhatsApp Business Cloud API.
@@ -39,20 +43,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: "assinatura inválida" }, { status: 401 });
   }
 
-  const body = JSON.parse(bruto) as {
-    entry?: Array<{ changes?: Array<{ value?: { messages?: Array<{ from: string; text?: { body: string } }> } }> }>;
+  let body: {
+    entry?: Array<{
+      changes?: Array<{
+        value?: {
+          metadata?: { phone_number_id?: string };
+          messages?: Array<{ from: string; text?: { body: string } }>;
+        };
+      }>;
+    }>;
   };
-  const mensagens = body.entry?.[0]?.changes?.[0]?.value?.messages ?? [];
+  try {
+    body = JSON.parse(bruto);
+  } catch {
+    return NextResponse.json({ ok: true });
+  }
+  const valor = body.entry?.[0]?.changes?.[0]?.value;
+  const mensagens = valor?.messages ?? [];
   if (mensagens.length === 0) return NextResponse.json({ ok: true });
 
-  // Uma instalação atende uma empresa por número de WhatsApp; enquanto houver
-  // um único número conectado, roteamos para a empresa que tem o canal ativo.
-  const empresa = await prisma.empresa.findFirstOrThrow({ select: { id: true } });
+  // A empresa vem do número que recebeu a mensagem (phone_number_id da Meta), nunca
+  // "a primeira do banco". Sem vínculo: 200 para a Meta não reenviar, sem processar.
+  const phoneNumberId = valor?.metadata?.phone_number_id;
+  const empresaId = await empresaDoNumeroWhatsapp(phoneNumberId);
+  if (!empresaId) {
+    console.warn("[whatsapp] número sem empresa vinculada; mensagem ignorada", {
+      phoneNumberId: mascarar(phoneNumberId),
+      quantidade: mensagens.length,
+    });
+    return NextResponse.json({ ok: true, ignorado: "numero-sem-empresa" });
+  }
 
   for (const m of mensagens) {
     if (!m.text?.body) continue;
+    const texto = m.text.body.slice(0, 2000);
+    const { limite, janelaMs } = LIMITES_IA.whatsapp;
+    if (!(await permitido(`ia:whatsapp:${empresaId}:${m.from}`, limite, janelaMs))) {
+      console.warn("[whatsapp] limite de mensagens por contato atingido", { de: mascarar(m.from) });
+      continue;
+    }
     const cliente = await prisma.cliente.findFirst({
-      where: { empresaId: empresa.id, whatsapp: { contains: m.from } },
+      where: { empresaId, whatsapp: { contains: m.from } },
       select: { id: true },
     });
     const conversa = await prisma.conversaIA.create({
@@ -62,14 +93,32 @@ export async function POST(req: NextRequest) {
         identificadorExterno: m.from,
       },
     });
-    const { resposta } = await conversarChat({
-      empresaId: empresa.id,
-      conversaId: conversa.id,
-      mensagemUsuario: m.text.body,
-    });
+    let resposta: string;
+    try {
+      ({ resposta } = await conversarChat({
+        empresaId,
+        conversaId: conversa.id,
+        mensagemUsuario: texto,
+        contexto: { canal: "WHATSAPP", clienteIdDoCanal: cliente?.id ?? null },
+      }));
+    } catch (e) {
+      // Teto de custo, IA desligada ou falha da OpenAI: não responde sozinho; fica para atendimento humano.
+      console.warn("[whatsapp] IA não respondeu", {
+        de: mascarar(m.from),
+        motivo: e instanceof ErroIA ? e.message : "erro na IA",
+      });
+      await prisma.mensagemIA.create({
+        data: { conversaId: conversa.id, papel: "USUARIO", conteudo: texto },
+      });
+      await prisma.conversaIA.update({
+        where: { id: conversa.id },
+        data: { transferidaParaHumano: true },
+      });
+      continue;
+    }
     await prisma.mensagemIA.createMany({
       data: [
-        { conversaId: conversa.id, papel: "USUARIO", conteudo: m.text.body },
+        { conversaId: conversa.id, papel: "USUARIO", conteudo: texto },
         { conversaId: conversa.id, papel: "ASSISTENTE", conteudo: resposta },
       ],
     });
@@ -77,7 +126,7 @@ export async function POST(req: NextRequest) {
     try {
       await enviarTexto({ para: m.from, texto: resposta });
     } catch (e) {
-      console.error("[whatsapp] falha ao responder", m.from, (e as Error).message);
+      console.error("[whatsapp] falha ao responder", mascarar(m.from), (e as Error).message);
     }
   }
   return NextResponse.json({ ok: true });

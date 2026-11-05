@@ -1,5 +1,7 @@
 import { prisma } from "../db";
-import { AI_MODELS, extrairJson, openai } from "./client";
+import { z } from "zod";
+import { chamarEstruturado } from "./chamada";
+import { ErroIA } from "./uso";
 
 // DemandSense / StockPredict
 // ==========================
@@ -24,28 +26,29 @@ export interface PrevisaoDemanda {
   explicacao: string;
 }
 
-async function historicoVendas(produtoId: string, dias: number) {
+// Quantidade vendida no período (só venda concluída: tipo VENDA, status PAGA/FATURADA).
+async function vendidoNoPeriodo(empresaId: string, produtoId: string, dias: number) {
   const desde = new Date();
   desde.setDate(desde.getDate() - dias);
-  return prisma.$queryRaw<Array<{ dia: Date; qtd: number }>>`
-    SELECT DATE_TRUNC('day', v."criadaEm") AS dia, SUM(iv.quantidade)::float AS qtd
+  const r = await prisma.$queryRaw<Array<{ qtd: number | null }>>`
+    SELECT SUM(iv.quantidade)::float AS qtd
       FROM itens_venda iv
       JOIN vendas v ON v.id = iv."vendaId"
      WHERE iv."produtoId" = ${produtoId}
+       AND v."empresaId" = ${empresaId}
        AND v."criadaEm" >= ${desde}
-       AND v.status NOT IN ('CANCELADA')
-     GROUP BY 1
-     ORDER BY 1`;
+       AND v.tipo = 'VENDA'
+       AND v.status IN ('PAGA', 'FATURADA')`;
+  return r[0]?.qtd ?? 0;
 }
 
-function media(arr: number[]) {
-  if (arr.length === 0) return 0;
-  return arr.reduce((a, b) => a + b, 0) / arr.length;
-}
-
-export async function preverProduto(produtoId: string): Promise<PrevisaoDemanda> {
-  const produto = await prisma.produto.findUniqueOrThrow({
-    where: { id: produtoId },
+export async function preverProduto(
+  empresaId: string,
+  produtoId: string,
+  opcoes: { comIA?: boolean } = {},
+): Promise<PrevisaoDemanda> {
+  const produto = await prisma.produto.findFirstOrThrow({
+    where: { id: produtoId, empresaId },
     include: { estoques: true },
   });
 
@@ -54,11 +57,10 @@ export async function preverProduto(produtoId: string): Promise<PrevisaoDemanda>
     0,
   );
 
-  const h30 = await historicoVendas(produtoId, 30);
-  const h90 = await historicoVendas(produtoId, 90);
-
-  const vendaMedia30d = media(h30.map((r) => r.qtd));
-  const vendaMedia90d = media(h90.map((r) => r.qtd));
+  // Média por dia corrido (antes era média só dos dias com venda, o que superestimava
+  // a demanda de peça de giro baixo).
+  const vendaMedia30d = (await vendidoNoPeriodo(empresaId, produtoId, 30)) / 30;
+  const vendaMedia90d = (await vendidoNoPeriodo(empresaId, produtoId, 90)) / 90;
   const diasCobertura =
     vendaMedia30d > 0 ? Math.round(estoqueAtual / vendaMedia30d) : 999;
 
@@ -75,7 +77,10 @@ export async function preverProduto(produtoId: string): Promise<PrevisaoDemanda>
   else if (diasCobertura <= leadTime * 1.5) riscoRuptura = "ALTO";
   else if (diasCobertura <= leadTime * 2) riscoRuptura = "MEDIO";
 
-  const explicacao = await explicarComIA({
+  // Números acima são determinísticos (banco). A IA só escreve a explicação.
+  const explicacao = opcoes.comIA === false
+    ? { fatores: [], texto: "" }
+    : await explicarComIA(empresaId, {
     nome: produto.nome,
     estoqueAtual,
     vendaMedia30d,
@@ -108,9 +113,15 @@ Considere SEMPRE fatores externos que afetam venda:
 - Comportamento setorial conhecido
 - Tendências de adoção (carros elétricos, peças de manutenção preventiva)
 
-Responda APENAS JSON: {"fatores":["string","string"],"texto":"explicação curta com 1-2 frases"}`;
+Devolva "fatores" (lista curta) e "texto" (explicação de 1 a 2 frases).
+Não proponha quantidades nem números novos: eles já foram calculados pelo sistema.`;
 
-async function explicarComIA(ctx: {
+export const explicacaoSchema = z.object({
+  fatores: z.array(z.string()),
+  texto: z.string(),
+});
+
+async function explicarComIA(empresaId: string, ctx: {
   nome: string;
   estoqueAtual: number;
   vendaMedia30d: number;
@@ -120,11 +131,14 @@ async function explicarComIA(ctx: {
 }): Promise<{ fatores: string[]; texto: string }> {
   const mes = new Date().toLocaleString("pt-BR", { month: "long" });
   try {
-    const resp = await openai.chat.completions.create({
-      model: AI_MODELS.fast,
-      max_completion_tokens: 256,
-      response_format: { type: "json_object" },
-      messages: [
+    return await chamarEstruturado({
+      empresaId,
+      recurso: "previsao",
+      papel: "fast",
+      maxTokens: 512,
+      schema: explicacaoSchema,
+      nomeSchema: "explicacao_demanda",
+      mensagens: [
         { role: "system", content: SYSTEM_PREV },
         {
           role: "user",
@@ -134,9 +148,9 @@ Cobertura: ${ctx.diasCobertura} dias. Risco: ${ctx.riscoRuptura}.`,
         },
       ],
     });
-    const txt = resp.choices[0]?.message?.content ?? "";
-    return extrairJson<{ fatores: string[]; texto: string }>(txt);
-  } catch {
+  } catch (e) {
+    // Teto estourado ou IA desligada: a previsão segue sem o texto da IA.
+    if (!(e instanceof ErroIA)) console.error("[ia/previsao] explicação falhou", (e as Error).message);
     return { fatores: [], texto: "" };
   }
 }
@@ -151,8 +165,22 @@ export async function gerarInsightsRupturaEmpresa(empresaId: string) {
 
   let criados = 0;
   for (const p of produtos) {
-    const prev = await preverProduto(p.id);
-    if (prev.riscoRuptura === "ALTO" || prev.riscoRuptura === "IMINENTE") {
+    // Primeiro o cálculo sem IA; só chama a IA para quem está em risco (antes eram
+    // até 1.000 chamadas por loja por noite).
+    const base = await preverProduto(empresaId, p.id, { comIA: false });
+    if (base.riscoRuptura !== "ALTO" && base.riscoRuptura !== "IMINENTE") continue;
+    const aberto = await prisma.insightIA.findFirst({
+      where: {
+        empresaId,
+        tipo: "RUPTURA_PREDITIVA",
+        resolvidoEm: null,
+        dadosReferencia: { path: ["produtoId"], equals: p.id },
+      },
+      select: { id: true },
+    });
+    if (aberto) continue;
+    const prev = await preverProduto(empresaId, p.id);
+    {
       await prisma.insightIA.create({
         data: {
           empresaId,

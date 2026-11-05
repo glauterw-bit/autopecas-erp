@@ -1827,3 +1827,22 @@ model LogAuditoria {
   @@index([usuarioId, criadoEm])
   @@map("logs_auditoria")
 }
+
+// Uso da IA por empresa: uma linha por chamada à OpenAI (tokens e custo estimado).
+// Serve para o teto mensal por loja e para saber quanto cada recurso custa.
+// Sem FK para Empresa de propósito: é log de uso, não pode travar exclusão nem mexer no model Empresa.
+model UsoIA {
+  id            String   @id @default(cuid())
+  empresaId     String
+  recurso       String // vision, ocr-nf, cross-reference, previsao, chat
+  modelo        String
+  tokensEntrada Int      @default(0) // sem contar os de cache
+  tokensCache   Int      @default(0)
+  tokensSaida   Int      @default(0)
+  custoUsd      Decimal  @db.Decimal(14, 8)
+  sucesso       Boolean  @default(true)
+  criadoEm      DateTime @default(now())
+
+  @@index([empresaId, criadoEm])
+  @@map("uso_ia")
+}
