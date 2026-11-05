@@ -1,4 +1,5 @@
 import axios from "axios";
+import { prisma } from "../db";
 
 // WhatsApp Business Cloud API
 // ===========================
@@ -10,6 +11,39 @@ const GRAPH_BASE = "https://graph.facebook.com/v20.0";
 interface MensagemTexto {
   para: string; // E.164 sem '+', ex: 5511999998888
   texto: string;
+  /** Empresa dona da conversa: o envio usa o número (phone_number_id) da conta dela. */
+  empresaId?: string;
+  /** Número que recebeu a mensagem; a resposta sai por ele. */
+  phoneNumberId?: string;
+}
+
+/**
+ * Número e token de envio. Com MarketplaceConta WHATSAPP_CATALOG ativa da
+ * empresa: usa o contaExternaId (phone_number_id) dela e o token da conta, se
+ * houver. Sem conta: cai no env (instalação de número único).
+ */
+export async function credenciaisWhatsapp(empresaId?: string, phoneNumberId?: string) {
+  if (empresaId) {
+    const conta = await prisma.marketplaceConta.findFirst({
+      where: {
+        empresaId,
+        plataforma: "WHATSAPP_CATALOG",
+        ativa: true,
+        contaExternaId: phoneNumberId ? phoneNumberId : { not: null },
+      },
+      orderBy: { criadoEm: "asc" },
+      select: { contaExternaId: true, accessToken: true },
+    });
+    if (conta?.contaExternaId) {
+      const token = conta.accessToken || process.env.WHATSAPP_TOKEN;
+      if (!token) throw new Error("WhatsApp não configurado");
+      return { phoneId: conta.contaExternaId, token };
+    }
+  }
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = process.env.WHATSAPP_TOKEN;
+  if (!phoneId || !token) throw new Error("WhatsApp não configurado");
+  return { phoneId, token };
 }
 
 interface MensagemTemplate {
@@ -19,10 +53,8 @@ interface MensagemTemplate {
   variaveis?: string[];
 }
 
-export async function enviarTexto({ para, texto }: MensagemTexto) {
-  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const token = process.env.WHATSAPP_TOKEN;
-  if (!phoneId || !token) throw new Error("WhatsApp não configurado");
+export async function enviarTexto({ para, texto, empresaId, phoneNumberId }: MensagemTexto) {
+  const { phoneId, token } = await credenciaisWhatsapp(empresaId, phoneNumberId);
   await axios.post(
     `${GRAPH_BASE}/${phoneId}/messages`,
     {

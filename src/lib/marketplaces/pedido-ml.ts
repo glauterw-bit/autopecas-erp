@@ -2,6 +2,9 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { importarVendaMarketplace, ErroImportacao } from "./importar-venda";
 import type { PedidoMLRaw } from "./mercado-livre";
+import { cancelarVendaMarketplace, type ResultadoCancelamento } from "./cancelar-venda";
+import { importarDesdeDaConta } from "./config-conta";
+import { pagamentoPrincipalML } from "./forma-pagamento";
 
 // Pedido pago do Mercado Livre → Venda no ERP
 // ===========================================
@@ -18,6 +21,8 @@ export type ResultadoPedidoML =
   | { status: "IMPORTADO"; vendaId: string }
   | { status: "DUPLICADO"; vendaId: string }
   | { status: "NAO_PAGO" }
+  | { status: "ANTES_DA_DATA_DE_IMPORTACAO" }
+  | { status: "CANCELADO"; cancelamento: ResultadoCancelamento }
   | { status: "SEM_PRODUTO"; faltando: string[] };
 
 export interface ItemPedidoML {
@@ -49,7 +54,7 @@ export function freteDoPedidoML(o: PedidoMLRaw): number {
 export async function importarPedidoML(contaId: string, o: PedidoMLRaw): Promise<ResultadoPedidoML> {
   const conta = await prisma.marketplaceConta.findUniqueOrThrow({
     where: { id: contaId },
-    select: { id: true, empresaId: true, nomeReferencia: true },
+    select: { id: true, empresaId: true, nomeReferencia: true, configuracoes: true, criadoEm: true },
   });
   const pedidoIdExterno = String(o.id);
   const fee = (o.order_items ?? []).reduce((a, it) => a + Math.round((it.sale_fee ?? 0) * (it.quantity ?? 1) * 100), 0) / 100;
@@ -69,7 +74,23 @@ export async function importarPedidoML(contaId: string, o: PedidoMLRaw): Promise
     select: { id: true, vendaId: true, observacao: true },
   });
 
+  // Cancelado depois de importado: estorna (ou pede revisão se já tem nota).
+  if (o.status === "cancelled") {
+    const cancelamento = await cancelarVendaMarketplace({
+      empresaId: conta.empresaId,
+      contaId,
+      pedidoIdExterno,
+      externoId: `ML-${pedidoIdExterno}`,
+    });
+    return { status: "CANCELADO", cancelamento };
+  }
   if (o.status !== "paid") return { status: "NAO_PAGO" };
+
+  // Pedido anterior à data configurada na conta: fica registrado, mas não vira
+  // venda (a loja pode já ter digitado à mão).
+  if (new Date(o.date_created) < importarDesdeDaConta(conta)) {
+    return { status: "ANTES_DA_DATA_DE_IMPORTACAO" };
+  }
 
   const itens = itensDoPedidoML(o);
   const skus = itens.map((i) => i.sku).filter((s): s is string => !!s);
@@ -112,6 +133,7 @@ export async function importarPedidoML(contaId: string, o: PedidoMLRaw): Promise
     return { status: "SEM_PRODUTO", faltando };
   }
 
+  const pagto = pagamentoPrincipalML(o.payments);
   try {
     const r = await importarVendaMarketplace({
       empresaId: conta.empresaId,
@@ -127,7 +149,9 @@ export async function importarPedidoML(contaId: string, o: PedidoMLRaw): Promise
       })),
       valorFrete: freteDoPedidoML(o),
       pago: true,
-      bandeiraPagamento: "mercadopago",
+      bandeiraPagamento: pagto.bandeira,
+      formaPagamento: pagto.forma,
+      parcelas: pagto.parcelas,
       observacoes: `Pedido ML ${pedidoIdExterno} (${conta.nomeReferencia})`,
       dadosAlerta: { mlOrderId: pedidoIdExterno },
     });

@@ -1,24 +1,26 @@
 import crypto from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { conversarChat } from "@/lib/ai/chat";
-import { ErroIA } from "@/lib/ai/uso";
 import { empresaDoNumeroWhatsapp, mascarar } from "@/lib/ai/whatsapp-empresa";
-import { permitido } from "@/lib/auth/rate-limit";
-import { LIMITES_IA } from "@/lib/ai/limite";
-import { enviarTexto } from "@/lib/marketplaces/whatsapp";
+import { iguaisTempoConstante } from "@/lib/pagamentos/webhook-pix-auth";
+import { processarMensagemWhatsapp, registrarMensagemWhatsapp } from "@/lib/marketplaces/whatsapp-inbound";
 
 // Webhook do WhatsApp Business Cloud API.
 // Inbound verificado com X-Hub-Signature-256 (HMAC do corpo com o App Secret
 // da Meta) — sem isso qualquer um forjaria conversas. A resposta da IA é
 // enviada de volta via Graph API e tudo fica registrado em ConversaIA.
+// A rota só valida, grava cada message.id (idempotente, EventoWebhook origem
+// WHATSAPP) e responde 200; a IA roda depois (fila BullMQ com REDIS_URL, ou
+// logo após a resposta sem ela). Assim a reentrega da Meta não duplica a
+// resposta nem o custo da IA.
 
 export async function GET(req: NextRequest) {
   // Validação inicial do webhook (Meta envia challenge no primeiro registro)
   const mode = req.nextUrl.searchParams.get("hub.mode");
   const token = req.nextUrl.searchParams.get("hub.verify_token");
   const challenge = req.nextUrl.searchParams.get("hub.challenge");
-  if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+  const esperado = process.env.WHATSAPP_VERIFY_TOKEN;
+  if (mode === "subscribe" && esperado && token && iguaisTempoConstante(token, esperado)) {
     return new Response(challenge ?? "", { status: 200 });
   }
   return NextResponse.json({ erro: "verificação falhou" }, { status: 403 });
@@ -48,7 +50,7 @@ export async function POST(req: NextRequest) {
       changes?: Array<{
         value?: {
           metadata?: { phone_number_id?: string };
-          messages?: Array<{ from: string; text?: { body: string } }>;
+          messages?: Array<{ id?: string; from: string; text?: { body: string } }>;
         };
       }>;
     }>;
@@ -66,68 +68,56 @@ export async function POST(req: NextRequest) {
   // "a primeira do banco". Sem vínculo: 200 para a Meta não reenviar, sem processar.
   const phoneNumberId = valor?.metadata?.phone_number_id;
   const empresaId = await empresaDoNumeroWhatsapp(phoneNumberId);
-  if (!empresaId) {
+  if (!empresaId || !phoneNumberId) {
     console.warn("[whatsapp] número sem empresa vinculada; mensagem ignorada", {
       phoneNumberId: mascarar(phoneNumberId),
       quantidade: mensagens.length,
     });
     return NextResponse.json({ ok: true, ignorado: "numero-sem-empresa" });
   }
+  const conta = await prisma.marketplaceConta.findFirst({
+    where: { empresaId, plataforma: "WHATSAPP_CATALOG", contaExternaId: phoneNumberId, ativa: true },
+    select: { id: true },
+  });
 
+  const novos: string[] = [];
   for (const m of mensagens) {
-    if (!m.text?.body) continue;
-    const texto = m.text.body.slice(0, 2000);
-    const { limite, janelaMs } = LIMITES_IA.whatsapp;
-    if (!(await permitido(`ia:whatsapp:${empresaId}:${m.from}`, limite, janelaMs))) {
-      console.warn("[whatsapp] limite de mensagens por contato atingido", { de: mascarar(m.from) });
-      continue;
-    }
-    const cliente = await prisma.cliente.findFirst({
-      where: { empresaId, whatsapp: { contains: m.from } },
-      select: { id: true },
+    if (!m.id || !m.text?.body) continue;
+    const reg = await registrarMensagemWhatsapp({
+      empresaId,
+      contaId: conta?.id ?? null,
+      phoneNumberId,
+      messageId: m.id,
+      de: m.from,
+      texto: m.text.body.slice(0, 2000),
     });
-    const conversa = await prisma.conversaIA.create({
-      data: {
-        canal: "WHATSAPP",
-        clienteId: cliente?.id,
-        identificadorExterno: m.from,
-      },
-    });
-    let resposta: string;
-    try {
-      ({ resposta } = await conversarChat({
-        empresaId,
-        conversaId: conversa.id,
-        mensagemUsuario: texto,
-        contexto: { canal: "WHATSAPP", clienteIdDoCanal: cliente?.id ?? null },
-      }));
-    } catch (e) {
-      // Teto de custo, IA desligada ou falha da OpenAI: não responde sozinho; fica para atendimento humano.
-      console.warn("[whatsapp] IA não respondeu", {
-        de: mascarar(m.from),
-        motivo: e instanceof ErroIA ? e.message : "erro na IA",
-      });
-      await prisma.mensagemIA.create({
-        data: { conversaId: conversa.id, papel: "USUARIO", conteudo: texto },
-      });
-      await prisma.conversaIA.update({
-        where: { id: conversa.id },
-        data: { transferidaParaHumano: true },
-      });
-      continue;
-    }
-    await prisma.mensagemIA.createMany({
-      data: [
-        { conversaId: conversa.id, papel: "USUARIO", conteudo: texto },
-        { conversaId: conversa.id, papel: "ASSISTENTE", conteudo: resposta },
-      ],
-    });
+    if (reg.novo) novos.push(reg.eventoId);
+  }
+  for (const id of novos) await agendar(id);
+  return NextResponse.json({ ok: true });
+}
 
+/** Fila quando há Redis; senão, depois de responder à Meta (não bloqueia a resposta). */
+async function agendar(eventoId: string) {
+  if (process.env.REDIS_URL) {
     try {
-      await enviarTexto({ para: m.from, texto: resposta });
+      const { queues } = await import("@/workers/queues");
+      await queues.marketplaces.add("webhook", { eventoId }, { jobId: `evt-${eventoId}`, attempts: 3 });
+      return;
     } catch (e) {
-      console.error("[whatsapp] falha ao responder", mascarar(m.from), (e as Error).message);
+      console.error("[whatsapp] fila indisponível, processando sem fila:", (e as Error).message?.slice(0, 120));
     }
   }
-  return NextResponse.json({ ok: true });
+  const rodar = async () => {
+    try {
+      await processarMensagemWhatsapp(eventoId);
+    } catch (e) {
+      console.error("[whatsapp] falha ao processar mensagem:", (e as Error).message?.slice(0, 160));
+    }
+  };
+  try {
+    after(rodar);
+  } catch {
+    void rodar();
+  }
 }

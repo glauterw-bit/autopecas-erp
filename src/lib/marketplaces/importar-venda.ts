@@ -1,4 +1,4 @@
-import { Prisma, type OrigemVenda } from "@prisma/client";
+import { Prisma, type FormaPagamento, type OrigemVenda } from "@prisma/client";
 import { prisma } from "../db";
 
 // Importa um pedido de marketplace como Venda no ERP
@@ -34,6 +34,8 @@ export interface PedidoImportacao {
   valorFrete: number;
   pago: boolean;
   bandeiraPagamento?: string;
+  formaPagamento?: FormaPagamento; // padrão: PIX (compatível com o que já existia)
+  parcelas?: number;
   observacoes: string;
   dadosAlerta?: Record<string, unknown>;
 }
@@ -89,9 +91,9 @@ async function vendaExistente(vendaId: string, pedido: PedidoImportacao): Promis
         await tx.pagamentoVenda.create({
           data: {
             vendaId: venda.id,
-            formaPagamento: "PIX",
+            formaPagamento: pedido.formaPagamento ?? "PIX",
             valor: venda.valorTotal,
-            parcelas: 1,
+            parcelas: pedido.parcelas ?? 1,
             bandeira: pedido.bandeiraPagamento,
           },
         });
@@ -166,9 +168,9 @@ export async function importarVendaMarketplace(pedido: PedidoImportacao): Promis
                   pagamentos: {
                     create: [
                       {
-                        formaPagamento: "PIX" as const,
+                        formaPagamento: pedido.formaPagamento ?? ("PIX" as const),
                         valor: reais(totalC),
-                        parcelas: 1,
+                        parcelas: pedido.parcelas ?? 1,
                         bandeira: pedido.bandeiraPagamento,
                       },
                     ],

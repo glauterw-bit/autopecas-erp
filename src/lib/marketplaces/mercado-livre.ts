@@ -428,7 +428,14 @@ type AnuncioMLRaw = {
 export type PedidoMLRaw = {
   pack_id?: number | string | null;
   paid_amount?: number;
-  payments?: Array<{ status?: string; shipping_cost?: number; payment_type?: string; payment_method_id?: string }>;
+  payments?: Array<{
+    status?: string;
+    shipping_cost?: number;
+    payment_type?: string;
+    payment_type_id?: string;
+    payment_method_id?: string;
+    installments?: number;
+  }>;
   id: number | string;
   status: string;
   total_amount: number;
