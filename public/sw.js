@@ -2,10 +2,11 @@
 // Cache-first para assets estáticos, network-first para API.
 // Suporta funcionamento offline básico (catálogo recentemente consultado).
 
-const VERSION = "v1.0.0";
+const VERSION = "v1.0.1";
 const STATIC_CACHE = `autopecas-static-${VERSION}`;
 const API_CACHE = `autopecas-api-${VERSION}`;
-const STATIC_ASSETS = ["/m", "/manifest.json"];
+// "/m" não entra no cache: a página exige login.
+const STATIC_ASSETS = ["/manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

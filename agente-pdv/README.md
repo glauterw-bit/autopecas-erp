@@ -4,6 +4,12 @@ Executável Node.js que roda **na máquina da loja** e faz a ponte entre o ERP
 web (navegador) e o hardware do PDV: PinPad TEF, equipamento SAT-CF-e,
 impressora térmica ESC/POS e balança serial.
 
+> **Aviso sobre o SAT.** Em São Paulo o SAT-CF-e acabou: a Portaria SRE 79/2024
+> proíbe emitir CF-e-SAT a partir de 01/01/2026 (fonte: `docs/conhecimento/fiscal-tributario.md`).
+> No varejo de SP, o cupom fiscal é a **NFC-e** (modelo 65), emitida pelo ERP.
+> O adaptador SAT abaixo só serve para lojas de outros estados que ainda usam o equipamento.
+> TEF, impressora e balança continuam valendo.
+
 Um único processo abre 3 servidores HTTP escutando **somente em 127.0.0.1**:
 
 | Porta | Serviço | Endpoints |

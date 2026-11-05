@@ -1,7 +1,7 @@
 {
   "name": "AutoPeças ERP — Vendedor",
   "short_name": "AutoPeças",
-  "description": "PWA do vendedor externo (em desenvolvimento): leitor de código de barras.",
+  "description": "Para quem vende fora da loja: leitor de código de barras e consulta de peças e clientes.",
   "start_url": "/m",
   "display": "standalone",
   "background_color": "#0a0a0a",

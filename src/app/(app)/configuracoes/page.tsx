@@ -1,6 +1,7 @@
-import { Building2, Cpu, FileText, KeyRound, Store, Wrench } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Building2, Cpu, FileText, KeyRound, Store, Wrench } from "lucide-react";
 import { prisma } from "@/lib/db";
-import { empresaAtualId } from "@/lib/sessao";
+import { empresaAtualId, usuarioAtual } from "@/lib/sessao";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { maskCpfCnpj } from "@/lib/utils";
@@ -16,6 +17,7 @@ function statusEnv(v: string | undefined) {
 
 export default async function ConfiguracoesPage() {
   const empresaId = await empresaAtualId();
+  const { perfil } = await usuarioAtual();
   const empresa = await prisma.empresa.findUnique({ where: { id: empresaId } });
   const [usuarios, depositos, marketplaces] = await Promise.all([
     prisma.usuario.count({ where: { empresaId } }),
@@ -42,6 +44,25 @@ export default async function ConfiguracoesPage() {
           Dados da empresa, integrações, séries fiscais e parâmetros do sistema.
         </p>
       </div>
+
+      {perfil === "ADMIN" && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <div className="font-medium">Implantação</div>
+              <p className="text-sm text-muted-foreground">
+                Traga produtos, clientes e saldos de outro sistema para começar a usar.
+              </p>
+            </div>
+            <Link
+              href="/configuracoes/implantacao"
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Abrir implantação <ArrowRight className="h-4 w-4" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
