@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { BadgeCheck, Plus, ShieldCheck, Wrench } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { empresaAtualId } from "@/lib/sessao";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,11 +27,18 @@ export default async function ProdutosPage() {
             Catálogo da loja com aplicação veicular, cross-reference e curva ABC.
           </p>
         </div>
+        <div className="flex gap-2">
+        <Button asChild variant="outline">
+          <Link href="/produtos/qualidade">
+            <ShieldCheck className="h-4 w-4" /> Qualidade do cadastro
+          </Link>
+        </Button>
         <Button asChild>
           <Link href="/produtos/novo">
             <Plus className="h-4 w-4" /> Novo produto
           </Link>
         </Button>
+        </div>
       </div>
 
       <Card>
@@ -62,7 +69,13 @@ export default async function ProdutosPage() {
                   <tr key={p.id} className="border-b hover:bg-secondary/50">
                     <td className="px-4 py-2 font-mono text-xs">{p.sku}</td>
                     <td className="px-4 py-2">
-                      <div className="font-medium">{p.nome}</div>
+                      <Link href={`/produtos/${p.id}`} className="font-medium hover:underline">{p.nome}</Link>
+                      {p.aplicacaoVerificadaEm && (
+                        <BadgeCheck className="ml-1 inline h-3.5 w-3.5 text-emerald-600" aria-label="Aplicação verificada" />
+                      )}
+                      {p.revisaoCadastro && (
+                        <Wrench className="ml-1 inline h-3.5 w-3.5 text-amber-600" aria-label="Cadastro em revisão" />
+                      )}
                       <div className="text-xs text-muted-foreground">
                         {p.codigoOem && `OEM ${p.codigoOem}`}
                         {p.codigoFabricante && ` · Fab ${p.codigoFabricante}`}

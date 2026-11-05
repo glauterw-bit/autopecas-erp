@@ -5,12 +5,14 @@ import { comAuth, ApiError } from "@/lib/auth/guard";
 
 // Venda perdida
 // =============
-// POST (VENDEDOR): registra em 2 cliques no PDV ou manualmente na tela de
-// compras. Contrato estável — o PDV depende dele.
+// POST (VENDEDOR): registra em 2 segundos no PDV (F8 "Não tínhamos") ou
+// manualmente na tela de compras. Contrato estável — o PDV depende dele.
+// veiculoDescricao é opcional ("Sprinter 415 2013").
 // GET  (VENDEDOR): últimas 100 da empresa, com o produto vinculado.
 
 const postSchema = z.object({
-  descricaoBuscada: z.string().min(1, "Descreva o que o cliente buscava").max(300),
+  descricaoBuscada: z.string().trim().min(1, "Descreva o que o cliente buscava").max(300),
+  veiculoDescricao: z.string().trim().max(120).optional().nullable(),
   produtoId: z.string().optional(),
   quantidade: z.number().positive().max(99999).optional(),
   motivo: z
@@ -45,6 +47,7 @@ export const POST = comAuth("VENDEDOR", async (req, _ctx, usuario) => {
       empresaId: usuario.empresaId,
       vendedorId: usuario.id,
       descricaoBuscada: body.descricaoBuscada,
+      veiculoDescricao: body.veiculoDescricao || null,
       produtoId: body.produtoId,
       quantidade: body.quantidade ?? 1,
       motivo: body.motivo ?? "SEM_ESTOQUE",
